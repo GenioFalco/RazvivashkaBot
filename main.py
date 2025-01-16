@@ -3,7 +3,7 @@ import logging
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 from config import config
-from handlers import common, achievements
+from handlers import common, achievements, daily_tasks
 from database.database import Database
 
 # Настройка логирования
@@ -17,6 +17,7 @@ dp = Dispatcher(storage=storage)
 # Регистрация роутеров
 dp.include_router(common.router)
 dp.include_router(achievements.router)
+dp.include_router(daily_tasks.router)
 
 async def main():
     """Основная функция запуска бота"""

@@ -70,7 +70,7 @@ async def admin_users_callback(callback: CallbackQuery):
     await callback.answer()
 
 @router.callback_query(F.data.in_({
-    "creativity", "daily_tasks", "puzzles", "riddles",
+    "creativity", "puzzles", "riddles",
     "articular_gym", "tongue_twisters", "neuro_gym",
     "for_moms"
 }))
@@ -78,7 +78,6 @@ async def process_callback(callback: CallbackQuery):
     """Обработчик остальных кнопок меню"""
     responses = {
         "creativity": "🎨 Раздел Творчество в разработке",
-        "daily_tasks": "📅 Раздел Задания на день в разработке",
         "puzzles": "🧩 Раздел Ребусы в разработке",
         "riddles": "❓ Раздел Загадки в разработке",
         "articular_gym": "🤸‍♂️ Раздел Артикулярная гимнастика в разработке",
@@ -88,6 +87,15 @@ async def process_callback(callback: CallbackQuery):
     }
     await callback.message.edit_text(
         responses[callback.data],
+        reply_markup=MainMenuKeyboard.get_keyboard(user_id=callback.from_user.id)
+    )
+    await callback.answer()
+
+@router.callback_query(F.data == "back_to_main")
+async def back_to_main_menu(callback: CallbackQuery):
+    """Обработчик кнопки возврата в главное меню"""
+    await callback.message.edit_text(
+        "Главное меню:",
         reply_markup=MainMenuKeyboard.get_keyboard(user_id=callback.from_user.id)
     )
     await callback.answer() 
