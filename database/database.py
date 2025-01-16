@@ -4,6 +4,7 @@ from typing import Optional, List, Dict, Tuple
 from config import config
 import re
 import random
+import asyncio
 
 class Database:
     def __init__(self, db_path: str = config.DATABASE_PATH):
@@ -106,6 +107,49 @@ class Database:
                     await db.executemany(
                         'INSERT INTO daily_tasks (task_text) VALUES (?)',
                         default_tasks
+                    )
+
+            # Создание таблицы загадок
+            await db.execute('''
+                CREATE TABLE IF NOT EXISTS riddles (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    question TEXT NOT NULL,
+                    answer TEXT NOT NULL
+                )
+            ''')
+
+            # Создание таблицы для отслеживания загадок пользователей
+            await db.execute('''
+                CREATE TABLE IF NOT EXISTS user_riddles (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER,
+                    riddle_id INTEGER,
+                    completed BOOLEAN DEFAULT FALSE,
+                    date DATE NOT NULL,
+                    FOREIGN KEY (user_id) REFERENCES users (telegram_id),
+                    FOREIGN KEY (riddle_id) REFERENCES riddles (id)
+                )
+            ''')
+
+            # Добавляем начальные загадки, если таблица пуста
+            async with db.execute('SELECT COUNT(*) FROM riddles') as cursor:
+                count = await cursor.fetchone()
+                if count[0] == 0:
+                    default_riddles = [
+                        ("Не лает, не кусает, а в дом не пускает?", "Замок"),
+                        ("Два кольца, два конца, а посередине гвоздик.", "Ножницы"),
+                        ("Сидит дед, во сто шуб одет. Кто его раздевает, тот слезы проливает.", "Лук"),
+                        ("Зимой и летом одним цветом.", "Ёлка"),
+                        ("Без окон, без дверей, полна горница людей.", "Огурец"),
+                        ("Красная девица сидит в темнице, а коса на улице.", "Морковь"),
+                        ("Висит груша, нельзя скушать.", "Лампочка"),
+                        ("Не ездок, а со шпорами, не сторож, а всех будит.", "Петух"),
+                        ("Кто приходит, кто уходит, все ее за ручку водят.", "Дверь"),
+                        ("Стоит дуб, в нем двенадцать гнезд, в каждом гнезде по четыре яйца, в каждом яйце по семь цыпленков.", "Год")
+                    ]
+                    await db.executemany(
+                        'INSERT INTO riddles (question, answer) VALUES (?, ?)',
+                        default_riddles
                     )
             await db.commit()
 
@@ -374,32 +418,36 @@ class Database:
 
     async def add_achievement(self, user_id: int, token_id: int) -> bool:
         """Добавляет достижение пользователю."""
-        try:
-            async with aiosqlite.connect(self.db_path) as db:
-                # Проверяем, есть ли уже такое достижение
-                async with db.execute(
-                    "SELECT count FROM achievements WHERE user_id = ? AND token_id = ?",
-                    (user_id, token_id)
-                ) as cursor:
-                    result = await cursor.fetchone()
+        max_retries = 3
+        retry_delay = 0.1  # 100ms
+        
+        for attempt in range(max_retries):
+            try:
+                async with aiosqlite.connect(self.db_path) as db:
+                    # Создаем запись, если её нет
+                    await db.execute('''
+                        INSERT OR IGNORE INTO achievements (user_id, token_id, count)
+                        VALUES (?, ?, 0)
+                    ''', (user_id, token_id))
                     
-                if result:
-                    # Если достижение существует, увеличиваем счетчик
-                    await db.execute(
-                        "UPDATE achievements SET count = count + 1 WHERE user_id = ? AND token_id = ?",
-                        (user_id, token_id)
-                    )
-                else:
-                    # Если достижения нет, создаем новое
-                    await db.execute(
-                        "INSERT INTO achievements (user_id, token_id, count) VALUES (?, ?, 1)",
-                        (user_id, token_id)
-                    )
-                await db.commit()
-                return True
-        except Exception as e:
-            print(f"Error in add_achievement: {e}")
-            return False 
+                    # Увеличиваем счетчик
+                    await db.execute('''
+                        UPDATE achievements 
+                        SET count = count + 1,
+                            last_updated = CURRENT_TIMESTAMP
+                        WHERE user_id = ? AND token_id = ?
+                    ''', (user_id, token_id))
+                    
+                    await db.commit()
+                    return True
+            except Exception as e:
+                if "database is locked" in str(e) and attempt < max_retries - 1:
+                    print(f"Database locked, retrying... (attempt {attempt + 1})")
+                    await asyncio.sleep(retry_delay * (attempt + 1))
+                    continue
+                print(f"Error in add_achievement: {e}")
+                return False
+        return False
 
     async def get_random_token(self) -> dict:
         """Возвращает случайный токен из базы данных."""
@@ -416,3 +464,141 @@ class Database:
         except Exception as e:
             print(f"Error in get_random_token: {e}")
             return None 
+
+    async def get_user_riddles(self, user_id: int) -> Tuple[List[Dict], int]:
+        """Получает загадки пользователя на сегодня и количество разгаданных"""
+        today = date.today()
+        async with aiosqlite.connect(self.db_path) as db:
+            # Проверяем, есть ли у пользователя загадки на сегодня
+            async with db.execute('''
+                SELECT COUNT(*) FROM user_riddles 
+                WHERE user_id = ? AND date = ?
+            ''', (user_id, today)) as cursor:
+                count = await cursor.fetchone()
+                
+            if count[0] == 0:
+                # Выбираем 5 случайных загадок
+                async with db.execute('SELECT id, question, answer FROM riddles ORDER BY RANDOM() LIMIT 5') as cursor:
+                    selected_riddles = await cursor.fetchall()
+                    
+                # Добавляем загадки пользователю
+                for riddle in selected_riddles:
+                    await db.execute('''
+                        INSERT INTO user_riddles (user_id, riddle_id, date)
+                        VALUES (?, ?, ?)
+                    ''', (user_id, riddle[0], today))
+                await db.commit()
+            
+            # Получаем текущие загадки пользователя
+            async with db.execute('''
+                SELECT r.id, r.question, r.answer, ur.completed 
+                FROM riddles r
+                JOIN user_riddles ur ON r.id = ur.riddle_id
+                WHERE ur.user_id = ? AND ur.date = ?
+                ORDER BY ur.id
+            ''', (user_id, today)) as cursor:
+                riddles = await cursor.fetchall()
+                
+            # Подсчитываем количество разгаданных загадок
+            async with db.execute('''
+                SELECT COUNT(*) FROM user_riddles
+                WHERE user_id = ? AND date = ? AND completed = TRUE
+            ''', (user_id, today)) as cursor:
+                completed_count = (await cursor.fetchone())[0]
+                
+            return [{
+                'id': riddle[0],
+                'question': riddle[1],
+                'answer': riddle[2],
+                'completed': riddle[3]
+            } for riddle in riddles], completed_count
+
+    async def check_riddle_answer(self, user_id: int, riddle_id: int, answer: str) -> bool:
+        """Проверяет ответ на загадку и отмечает её как разгаданную если ответ верный"""
+        today = date.today()
+        async with aiosqlite.connect(self.db_path) as db:
+            # Получаем правильный ответ
+            async with db.execute('''
+                SELECT r.answer FROM riddles r
+                JOIN user_riddles ur ON r.id = ur.riddle_id
+                WHERE ur.user_id = ? AND ur.riddle_id = ? AND ur.date = ?
+            ''', (user_id, riddle_id, today)) as cursor:
+                result = await cursor.fetchone()
+                if not result:
+                    return False
+                
+                correct_answer = result[0].lower()
+                user_answer = answer.lower()
+                
+                if correct_answer == user_answer:
+                    # Отмечаем загадку как разгаданную
+                    await db.execute('''
+                        UPDATE user_riddles 
+                        SET completed = TRUE
+                        WHERE user_id = ? AND riddle_id = ? AND date = ?
+                    ''', (user_id, riddle_id, today))
+                    
+                    # Создаем запись для токена "Мудрец" если её нет
+                    await db.execute('''
+                        INSERT OR IGNORE INTO achievements (user_id, token_id, count)
+                        VALUES (?, 7, 0)
+                    ''', (user_id,))
+                    
+                    # Увеличиваем количество токенов за разгадку
+                    await db.execute('''
+                        UPDATE achievements 
+                        SET count = count + 1,
+                            last_updated = CURRENT_TIMESTAMP
+                        WHERE user_id = ? AND token_id = 7
+                    ''', (user_id,))
+                    
+                    # Проверяем, все ли загадки разгаданы
+                    async with db.execute('''
+                        SELECT COUNT(*) FROM user_riddles
+                        WHERE user_id = ? AND date = ? AND completed = TRUE
+                    ''', (user_id, today)) as cursor:
+                        completed_count = (await cursor.fetchone())[0]
+                        
+                        if completed_count == 5:
+                            # Создаем запись для токена "Чемпион дня" если её нет
+                            await db.execute('''
+                                INSERT OR IGNORE INTO achievements (user_id, token_id, count)
+                                VALUES (?, 8, 0)
+                            ''', (user_id,))
+                            
+                            # Добавляем супер-награду
+                            await db.execute('''
+                                UPDATE achievements 
+                                SET count = count + 1,
+                                    last_updated = CURRENT_TIMESTAMP
+                                WHERE user_id = ? AND token_id = 8
+                            ''', (user_id,))
+                    
+                    await db.commit()
+                    return True
+                return False
+
+    async def spend_token(self, user_id: int, token_id: int) -> bool:
+        """Тратит жетон пользователя"""
+        try:
+            async with aiosqlite.connect(self.db_path) as db:
+                # Проверяем количество жетонов
+                async with db.execute('''
+                    SELECT count FROM achievements
+                    WHERE user_id = ? AND token_id = ?
+                ''', (user_id, token_id)) as cursor:
+                    result = await cursor.fetchone()
+                    if not result or result[0] <= 0:
+                        return False
+                    
+                # Уменьшаем количество жетонов
+                await db.execute('''
+                    UPDATE achievements
+                    SET count = count - 1
+                    WHERE user_id = ? AND token_id = ?
+                ''', (user_id, token_id))
+                
+                await db.commit()
+                return True
+        except Exception:
+            return False 

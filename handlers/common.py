@@ -223,7 +223,7 @@ async def back_to_admin_panel(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 @router.callback_query(F.data.in_({
-    "creativity", "puzzles", "riddles",
+    "creativity", "puzzles",
     "articular_gym", "tongue_twisters", "neuro_gym",
     "for_moms"
 }))
@@ -232,7 +232,6 @@ async def process_callback(callback: CallbackQuery):
     responses = {
         "creativity": "🎨 Раздел Творчество в разработке",
         "puzzles": "🧩 Раздел Ребусы в разработке",
-        "riddles": "❓ Раздел Загадки в разработке",
         "articular_gym": "🤸‍♂️ Раздел Артикулярная гимнастика в разработке",
         "tongue_twisters": "👄 Раздел Скороговорки в разработке",
         "neuro_gym": "🧠 Раздел Нейрогимнастика в разработке",
