@@ -121,13 +121,13 @@ class Database:
                     'description': token[3]
                 } for token in tokens]
 
-    async def update_token(self, token_id: int, emoji: str, name: str) -> bool:
+    async def update_token(self, token_id: int, new_emoji: str, new_name: str) -> bool:
         """Обновление токена"""
         try:
             async with aiosqlite.connect(self.db_path) as db:
                 await db.execute(
                     'UPDATE tokens SET emoji = ?, name = ? WHERE id = ?',
-                    (emoji, name, token_id)
+                    (new_emoji, new_name, token_id)
                 )
                 await db.commit()
                 return True

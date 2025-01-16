@@ -1,5 +1,6 @@
 from aiogram import Router, F
-from aiogram.types import CallbackQuery
+from aiogram.types import CallbackQuery, InlineKeyboardButton
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 from keyboards.daily_tasks import DailyTasksKeyboard
 from keyboards.main_menu import MainMenuKeyboard
 from database.database import Database
@@ -72,15 +73,31 @@ async def complete_task(callback: CallbackQuery):
     # Отмечаем задание как выполненное
     success = await db.complete_daily_task(callback.from_user.id, task_id)
     if success:
-        # Получаем название токена
-        tokens = await db.get_all_tokens()
-        token = next((t for t in tokens if t['id'] == 2), None)
+        # Проверяем количество выполненных заданий
+        tasks, completed = await db.get_user_daily_tasks(callback.from_user.id)
         
-        text = f"Здорово! За выполнение задания ты получаешь {token['emoji']} {token['name']}! Соберешь еще больше?"
+        if completed == 5:
+            # Получаем супер-приз (токен с id=8)
+            super_token = await db.get_token_by_id(8)
+            text = (
+                "🎉 Поздравляем! Ты выполнил все задания на сегодня!\n"
+                f"В награду ты получаешь особый приз: {super_token['emoji']} {super_token['name']}!\n"
+                "Возвращайся завтра за новыми заданиями! 🌟"
+            )
+            markup = InlineKeyboardBuilder()
+            markup.add(InlineKeyboardButton(text="↩️ В главное меню", callback_data="back_to_main"))
+            markup = markup.as_markup()
+        else:
+            # Получаем обычный токен
+            tokens = await db.get_all_tokens()
+            token = next((t for t in tokens if t['id'] == 2), None)
+            text = f"Здорово! За выполнение задания ты получаешь {token['emoji']} {token['name']}! Соберешь еще больше?"
+            markup = DailyTasksKeyboard.get_main_keyboard()
     else:
         text = "Произошла ошибка при сохранении результата."
+        markup = DailyTasksKeyboard.get_main_keyboard()
     
-    await callback.message.edit_text(text, reply_markup=DailyTasksKeyboard.get_main_keyboard())
+    await callback.message.edit_text(text, reply_markup=markup)
     await callback.answer()
 
 @router.callback_query(F.data.startswith("skip_task_"))
