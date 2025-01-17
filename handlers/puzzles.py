@@ -80,9 +80,12 @@ async def start_answer_puzzle(callback: CallbackQuery, state: FSMContext):
         return
     
     await state.set_state(PuzzleStates.waiting_for_answer)
+    # Сохраняем все необходимые данные в состояние
+    puzzle['index'] = data.get('current_index', 0) + 1
     await state.update_data(
         puzzle_id=puzzle_id,
-        rebus_number=rebus_number
+        rebus_number=rebus_number,
+        current_puzzle=puzzle
     )
     
     # Отправляем новое сообщение вместо редактирования
@@ -186,19 +189,30 @@ async def show_puzzle_answers(callback: CallbackQuery, state: FSMContext):
 async def cancel_puzzle_answer(callback: CallbackQuery, state: FSMContext):
     """Отменяет ввод ответа на ребус"""
     puzzle_id = int(callback.data.split('_')[3])
-    data = await state.get_data()
-    puzzle = data.get('current_puzzle')
+    rebus_number = int(callback.data.split('_')[4])
     
-    await state.set_data(data)  # Сбрасываем состояние ответа
+    # Получаем актуальные данные из БД
+    db = Database()
+    puzzles, completed_count = await db.get_user_puzzles(callback.from_user.id)
+    current_puzzle = next(p for p in puzzles if p['id'] == puzzle_id)
     
-    image = FSInputFile(puzzle['image_path'])
+    # Очищаем состояние ожидания ответа
+    await state.clear()
+    
+    # Восстанавливаем состояние текущего ребуса с актуальными данными
+    current_puzzle['index'] = next(i for i, p in enumerate(puzzles) if p['id'] == puzzle_id) + 1
+    await state.update_data(current_puzzle=current_puzzle)
+    
+    # Отправляем изображение с актуальным состоянием кнопок
+    image = FSInputFile(current_puzzle['image_path'])
     await callback.message.answer_photo(
         photo=image,
         caption=(
+            f"Ребус {current_puzzle['index']}/3\n\n"
             "На картинке изображены 3 ребуса.\n"
             "Выбери, на какой ребус хочешь ответить!"
         ),
-        reply_markup=PuzzlesKeyboard.get_puzzle_keyboard(puzzle_id, puzzle['solved'])
+        reply_markup=PuzzlesKeyboard.get_puzzle_keyboard(puzzle_id, current_puzzle['solved'])
     )
     await callback.answer()
 
@@ -215,7 +229,7 @@ async def show_next_puzzle(callback: CallbackQuery, state: FSMContext):
     next_index = current_index + 1
     
     if next_index >= len(puzzles):
-        await callback.message.edit_text(
+        await callback.message.answer(
             "Это была последняя картинка с ребусами на сегодня.\n"
             "Приходи завтра за новыми ребусами!",
             reply_markup=PuzzlesKeyboard.get_menu_keyboard()
@@ -225,6 +239,7 @@ async def show_next_puzzle(callback: CallbackQuery, state: FSMContext):
     
     # Показываем следующий ребус
     puzzle = puzzles[next_index]
+    puzzle['index'] = next_index + 1  # Сохраняем индекс
     image = FSInputFile(puzzle['image_path'])
     
     await callback.message.answer_photo(
@@ -238,7 +253,7 @@ async def show_next_puzzle(callback: CallbackQuery, state: FSMContext):
     )
     
     # Обновляем текущий ребус в состоянии
-    await state.update_data(current_puzzle=puzzle)
+    await state.update_data(current_puzzle=puzzle, current_index=next_index)
     await callback.answer()
 
 @router.callback_query(F.data == "back_to_puzzles_menu")
