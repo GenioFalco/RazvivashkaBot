@@ -197,6 +197,46 @@ class Database:
                 )
             """)
             
+            # Создание таблицы ребусов
+            await db.execute('''
+                CREATE TABLE IF NOT EXISTS puzzles (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    image_path TEXT NOT NULL,
+                    answer1 TEXT NOT NULL,
+                    answer2 TEXT NOT NULL,
+                    answer3 TEXT NOT NULL
+                )
+            ''')
+
+            # Создание таблицы для отслеживания решенных ребусов
+            await db.execute('''
+                CREATE TABLE IF NOT EXISTS user_puzzles (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER,
+                    puzzle_id INTEGER,
+                    solved1 BOOLEAN DEFAULT FALSE,
+                    solved2 BOOLEAN DEFAULT FALSE,
+                    solved3 BOOLEAN DEFAULT FALSE,
+                    date DATE NOT NULL,
+                    FOREIGN KEY (user_id) REFERENCES users (telegram_id),
+                    FOREIGN KEY (puzzle_id) REFERENCES puzzles (id)
+                )
+            ''')
+
+            # Добавляем начальные ребусы, если таблица пуста
+            async with db.execute('SELECT COUNT(*) FROM puzzles') as cursor:
+                count = await cursor.fetchone()
+                if count[0] == 0:
+                    default_puzzles = [
+                        ('1.jpg', 'водопад', 'листопад', 'снегопад'),
+                        ('2.jpg', 'подвал', 'подъезд', 'подъем'),
+                        ('3.jpg', 'заслонка', 'застава', 'заставка')
+                    ]
+                    await db.executemany(
+                        'INSERT INTO puzzles (image_path, answer1, answer2, answer3) VALUES (?, ?, ?, ?)',
+                        default_puzzles
+                    )
+
             await db.commit()
             
         # Инициализируем видео после создания таблиц
@@ -779,3 +819,104 @@ class Database:
                         'description': token[3]
                     }
                 return None 
+
+    async def get_user_puzzles(self, user_id: int) -> Tuple[List[Dict], int]:
+        """Получает ребусы пользователя на сегодня и количество решенных"""
+        today = date.today()
+        async with aiosqlite.connect(self.db_path) as db:
+            # Проверяем, есть ли у пользователя ребусы на сегодня
+            async with db.execute('''
+                SELECT COUNT(*) FROM user_puzzles 
+                WHERE user_id = ? AND date = ?
+            ''', (user_id, today)) as cursor:
+                count = await cursor.fetchone()
+                
+            if count[0] == 0:
+                # Выбираем 3 случайных ребуса
+                async with db.execute('SELECT id, image_path, answer1, answer2, answer3 FROM puzzles ORDER BY RANDOM() LIMIT 3') as cursor:
+                    selected_puzzles = await cursor.fetchall()
+                    
+                # Добавляем ребусы пользователю
+                for puzzle in selected_puzzles:
+                    await db.execute('''
+                        INSERT INTO user_puzzles (user_id, puzzle_id, date)
+                        VALUES (?, ?, ?)
+                    ''', (user_id, puzzle[0], today))
+                await db.commit()
+            
+            # Получаем текущие ребусы пользователя
+            async with db.execute('''
+                SELECT p.id, p.image_path, p.answer1, p.answer2, p.answer3,
+                       up.solved1, up.solved2, up.solved3
+                FROM puzzles p
+                JOIN user_puzzles up ON p.id = up.puzzle_id
+                WHERE up.user_id = ? AND up.date = ?
+                ORDER BY up.id
+            ''', (user_id, today)) as cursor:
+                puzzles = await cursor.fetchall()
+                
+            # Подсчитываем общее количество решенных ребусов
+            total_solved = sum(
+                sum(1 for solved in puzzle[5:8] if solved)
+                for puzzle in puzzles
+            )
+                
+            return [{
+                'id': puzzle[0],
+                'image_path': puzzle[1],
+                'answers': [puzzle[2], puzzle[3], puzzle[4]],
+                'solved': [puzzle[5], puzzle[6], puzzle[7]]
+            } for puzzle in puzzles], total_solved
+
+    async def check_puzzle_answer(self, user_id: int, puzzle_id: int, rebus_number: int, answer: str) -> bool:
+        """Проверяет ответ на ребус и отмечает его как решенный если ответ верный"""
+        today = date.today()
+        async with aiosqlite.connect(self.db_path) as db:
+            # Получаем правильный ответ
+            async with db.execute('''
+                SELECT answer1, answer2, answer3 FROM puzzles
+                WHERE id = ?
+            ''', (puzzle_id,)) as cursor:
+                answers = await cursor.fetchone()
+                if not answers:
+                    return False
+                
+                correct_answer = answers[rebus_number - 1].lower()
+                user_answer = answer.lower()
+                
+                if correct_answer == user_answer:
+                    # Отмечаем ребус как решенный
+                    solved_field = f'solved{rebus_number}'
+                    await db.execute(f'''
+                        UPDATE user_puzzles 
+                        SET {solved_field} = TRUE
+                        WHERE user_id = ? AND puzzle_id = ? AND date = ?
+                    ''', (user_id, puzzle_id, today))
+                    
+                    # Проверяем, все ли ребусы на картинке решены
+                    async with db.execute('''
+                        SELECT solved1, solved2, solved3
+                        FROM user_puzzles
+                        WHERE user_id = ? AND puzzle_id = ? AND date = ?
+                    ''', (user_id, puzzle_id, today)) as cursor:
+                        solved_status = await cursor.fetchone()
+                        all_solved = all(solved_status)
+                        
+                        if all_solved:
+                            # Создаем запись для токена "Мастер ребусов" если её нет
+                            await db.execute('''
+                                INSERT OR IGNORE INTO achievements (user_id, token_id, count)
+                                VALUES (?, 3, 0)
+                            ''', (user_id,))
+                            
+                            # Увеличиваем количество токенов
+                            await db.execute('''
+                                UPDATE achievements 
+                                SET count = count + 1,
+                                    last_updated = CURRENT_TIMESTAMP
+                                WHERE user_id = ? AND token_id = 3
+                            ''', (user_id,))
+                    
+                    await db.commit()
+                    return True
+                return False 

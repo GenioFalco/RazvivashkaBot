@@ -139,11 +139,33 @@ async def skip_task(callback: CallbackQuery):
 @router.callback_query(F.data.in_({"back_to_daily_tasks", "back_to_main"}))
 async def process_back_button(callback: CallbackQuery):
     """Обрабатывает нажатие кнопки "Назад" """
-    if callback.data == "back_to_main":
-        await callback.message.edit_text(
-            "Главное меню:",
-            reply_markup=MainMenuKeyboard.get_keyboard(user_id=callback.from_user.id)
-        )
-    else:
-        await show_daily_tasks_menu(callback)
+    try:
+        if callback.data == "back_to_main":
+            await callback.message.edit_text(
+                "Главное меню:",
+                reply_markup=MainMenuKeyboard.get_keyboard(user_id=callback.from_user.id)
+            )
+        else:
+            await callback.message.edit_text(
+                "🌞 Добро пожаловать в раздел «Задания на день»!\n\n"
+                "Каждый день тебя ждут 5 интересных заданий. "
+                "За каждое выполненное задание ты получаешь звёздочку ⭐\n"
+                "А если выполнишь все задания, получишь особую награду! 🏆",
+                reply_markup=DailyTasksKeyboard.get_main_keyboard()
+            )
+    except Exception as e:
+        # Если не удалось отредактировать сообщение, отправляем новое
+        if callback.data == "back_to_main":
+            await callback.message.answer(
+                "Главное меню:",
+                reply_markup=MainMenuKeyboard.get_keyboard(user_id=callback.from_user.id)
+            )
+        else:
+            await callback.message.answer(
+                "🌞 Добро пожаловать в раздел «Задания на день»!\n\n"
+                "Каждый день тебя ждут 5 интересных заданий. "
+                "За каждое выполненное задание ты получаешь звёздочку ⭐\n"
+                "А если выполнишь все задания, получишь особую награду! 🏆",
+                reply_markup=DailyTasksKeyboard.get_main_keyboard()
+            )
     await callback.answer() 

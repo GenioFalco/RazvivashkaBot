@@ -12,7 +12,7 @@ class RiddlesKeyboard:
         return kb.as_markup()
 
     @staticmethod
-    def get_navigation_keyboard(current_index: int, total_riddles: int) -> InlineKeyboardMarkup:
+    def get_navigation_keyboard(current_index: int, total_riddles: int, is_completed: bool = False) -> InlineKeyboardMarkup:
         """Создает клавиатуру навигации по загадкам"""
         kb = InlineKeyboardBuilder()
         
@@ -24,7 +24,8 @@ class RiddlesKeyboard:
         kb.adjust(2)
         
         # Кнопки действий
-        kb.button(text="✍️ Ответить", callback_data=f"answer_riddle_{current_index}")
+        if not is_completed:
+            kb.button(text="✍️ Ответить", callback_data=f"answer_riddle_{current_index}")
         kb.button(text="👀 Смотреть ответ", callback_data=f"show_answer_{current_index}")
         kb.button(text="↩️ Назад", callback_data="back_to_riddles_menu")
         kb.adjust(1)

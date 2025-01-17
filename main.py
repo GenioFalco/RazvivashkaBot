@@ -3,7 +3,7 @@ import logging
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 from config import config
-from handlers import common, achievements, daily_tasks, riddles, exercises
+from handlers import common, achievements, daily_tasks, riddles, exercises, puzzles
 
 async def main():
     # Включаем логирование
@@ -22,6 +22,7 @@ async def main():
     dp.include_router(daily_tasks.router)
     dp.include_router(riddles.router)
     dp.include_router(exercises.router)
+    dp.include_router(puzzles.router)
 
     # Пропускаем накопившиеся апдейты и запускаем polling
     await bot.delete_webhook(drop_pending_updates=True)

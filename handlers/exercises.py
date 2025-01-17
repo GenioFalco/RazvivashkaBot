@@ -9,6 +9,7 @@ import re
 from urllib.parse import urlencode
 import aiosqlite
 from datetime import datetime
+from keyboards.main_menu import MainMenuKeyboard
 
 router = Router()
 
@@ -113,9 +114,6 @@ async def show_exercise_video(callback: CallbackQuery, state: FSMContext):
     """Показывает видео упражнения"""
     print("Обработка нажатия кнопки 'Смотреть'")
     
-    # Отправляем сообщение о загрузке
-    await callback.message.edit_text("⏳ Загружаю видео, пожалуйста подождите...")
-    
     state_data = await state.get_data()
     exercise_type = state_data.get('exercise_type')
     print(f"Тип упражнения из состояния: {exercise_type}")
@@ -146,7 +144,7 @@ async def show_exercise_video(callback: CallbackQuery, state: FSMContext):
         else:
             caption += "\n\nОтметьте, пожалуйста, результат:"
         
-        # Отправляем видео
+        # Отправляем видео новым сообщением
         success = await send_video(
             bot=callback.message.bot,
             chat_id=callback.message.chat.id,
@@ -159,8 +157,6 @@ async def show_exercise_video(callback: CallbackQuery, state: FSMContext):
         )
         
         if success:
-            # Удаляем сообщение о загрузке
-            await callback.message.delete()
             # Сохраняем ID видео в состоянии
             await state.update_data(current_video_id=video['id'])
         else:
@@ -169,6 +165,7 @@ async def show_exercise_video(callback: CallbackQuery, state: FSMContext):
     except Exception as e:
         print(f"Ошибка при отправке видео: {e}")
         await callback.message.edit_text("Произошла ошибка при загрузке видео. Попробуйте позже.")
+    await callback.answer()
 
 @router.callback_query(F.data.startswith(("prev_video_", "next_video_")))
 async def navigate_videos(callback: CallbackQuery, state: FSMContext):
@@ -299,18 +296,40 @@ async def process_exercise_completion(callback: CallbackQuery, state: FSMContext
 
 @router.callback_query(F.data == "back_to_exercise_menu")
 async def back_to_exercise_menu(callback: CallbackQuery, state: FSMContext):
-    """Возвращает в меню упражнений"""
-    data = await state.get_data()
-    exercise_type = data.get('exercise_type')
-    if exercise_type:
-        info = EXERCISE_DESCRIPTIONS[exercise_type]
-        await callback.message.answer(
-            f"{info['title']}\n\n{info['description']}",
-            reply_markup=ExercisesKeyboard.get_menu_keyboard()
-        )
-    else:
-        await callback.message.answer(
-            "Произошла ошибка. Вернитесь в главное меню.",
-            reply_markup=ExercisesKeyboard.get_menu_keyboard()
-        )
+    """Возвращает в меню раздела упражнений"""
+    try:
+        # Получаем тип упражнения из состояния
+        data = await state.get_data()
+        exercise_type = data.get('exercise_type')
+        
+        if exercise_type:
+            info = EXERCISE_DESCRIPTIONS[exercise_type]
+            await callback.message.edit_text(
+                f"{info['title']}\n\n{info['description']}",
+                reply_markup=ExercisesKeyboard.get_menu_keyboard()
+            )
+        else:
+            # Если тип упражнения не найден, возвращаем в главное меню
+            from keyboards.main_menu import MainMenuKeyboard
+            await callback.message.edit_text(
+                "Главное меню:",
+                reply_markup=MainMenuKeyboard.get_keyboard(user_id=callback.from_user.id)
+            )
+    except Exception as e:
+        # Если не удалось отредактировать сообщение, отправляем новое
+        data = await state.get_data()
+        exercise_type = data.get('exercise_type')
+        
+        if exercise_type:
+            info = EXERCISE_DESCRIPTIONS[exercise_type]
+            await callback.message.answer(
+                f"{info['title']}\n\n{info['description']}",
+                reply_markup=ExercisesKeyboard.get_menu_keyboard()
+            )
+        else:
+            from keyboards.main_menu import MainMenuKeyboard
+            await callback.message.answer(
+                "Главное меню:",
+                reply_markup=MainMenuKeyboard.get_keyboard(user_id=callback.from_user.id)
+            )
     await callback.answer() 

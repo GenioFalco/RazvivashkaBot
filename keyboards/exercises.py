@@ -9,7 +9,7 @@ class ExercisesKeyboard:
         """Возвращает клавиатуру меню упражнений"""
         builder = InlineKeyboardBuilder()
         builder.add(InlineKeyboardButton(text="📺 Смотреть", callback_data="watch_exercise"))
-        builder.add(InlineKeyboardButton(text="↩️ Назад", callback_data="back_to_exercise_menu"))
+        builder.add(InlineKeyboardButton(text="↩️ Назад", callback_data="back_to_main"))
         return builder.as_markup()
     
     @staticmethod
@@ -35,5 +35,5 @@ class ExercisesKeyboard:
                 InlineKeyboardButton(text="❌ Не сделал", callback_data=f"exercise_not_done_{video_id}")
             )
         
-        builder.row(InlineKeyboardButton(text="↩️ Назад", callback_data="back_to_exercise_menu"))
+        builder.row(InlineKeyboardButton(text="↩️ Назад", callback_data="back_to_main"))
         return builder.as_markup() 

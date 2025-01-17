@@ -17,6 +17,7 @@ class MainMenuKeyboard:
         
         # Добавляем кнопки в одну колонку
         kb.add(InlineKeyboardButton(text="❓ Загадки", callback_data="riddles"))
+        kb.add(InlineKeyboardButton(text="🧩 Ребусы", callback_data="puzzles"))
         kb.add(InlineKeyboardButton(text="🧠 Нейрогимнастика", callback_data="neuro_exercises"))
         kb.add(InlineKeyboardButton(text="🤸 Артикулярная гимнастика", callback_data="articular_exercises"))
         kb.add(InlineKeyboardButton(text="📅 Ежедневные задания", callback_data="daily_tasks"))

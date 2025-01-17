@@ -223,7 +223,7 @@ async def back_to_admin_panel(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 @router.callback_query(F.data.in_({
-    "creativity", "puzzles",
+    "creativity",
     "articular_gym", "tongue_twisters", "neuro_gym",
     "for_moms"
 }))
@@ -231,7 +231,6 @@ async def process_callback(callback: CallbackQuery):
     """Обработчик остальных кнопок меню"""
     responses = {
         "creativity": "🎨 Раздел Творчество в разработке",
-        "puzzles": "🧩 Раздел Ребусы в разработке",
         "articular_gym": "🤸‍♂️ Раздел Артикулярная гимнастика в разработке",
         "tongue_twisters": "👄 Раздел Скороговорки в разработке",
         "neuro_gym": "🧠 Раздел Нейрогимнастика в разработке",
@@ -246,8 +245,15 @@ async def process_callback(callback: CallbackQuery):
 @router.callback_query(F.data == "back_to_main")
 async def back_to_main_menu(callback: CallbackQuery):
     """Обработчик кнопки возврата в главное меню"""
-    await callback.message.edit_text(
-        "Главное меню:",
-        reply_markup=MainMenuKeyboard.get_keyboard(user_id=callback.from_user.id)
-    )
+    try:
+        await callback.message.edit_text(
+            "Главное меню:",
+            reply_markup=MainMenuKeyboard.get_keyboard(user_id=callback.from_user.id)
+        )
+    except Exception as e:
+        # Если не удалось отредактировать сообщение, отправляем новое
+        await callback.message.answer(
+            "Главное меню:",
+            reply_markup=MainMenuKeyboard.get_keyboard(user_id=callback.from_user.id)
+        )
     await callback.answer() 

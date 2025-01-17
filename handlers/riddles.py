@@ -51,7 +51,7 @@ async def start_riddles(callback: CallbackQuery, state: FSMContext):
         f"Загадка {1}/5:\n\n"
         f"{riddle['question']}\n\n"
         f"{'✅ Разгадана!' if riddle['completed'] else '❌ Не разгадана'}",
-        reply_markup=RiddlesKeyboard.get_navigation_keyboard(0, len(riddles))
+        reply_markup=RiddlesKeyboard.get_navigation_keyboard(0, len(riddles), riddle['completed'])
     )
     await callback.answer()
 
@@ -75,7 +75,7 @@ async def navigate_riddles(callback: CallbackQuery, state: FSMContext):
         f"Загадка {new_index + 1}/5:\n\n"
         f"{riddle['question']}\n\n"
         f"{'✅ Разгадана!' if riddle['completed'] else '❌ Не разгадана'}",
-        reply_markup=RiddlesKeyboard.get_navigation_keyboard(new_index, len(riddles))
+        reply_markup=RiddlesKeyboard.get_navigation_keyboard(new_index, len(riddles), riddle['completed'])
     )
     await callback.answer()
 
@@ -155,12 +155,16 @@ async def show_riddle_answer(callback: CallbackQuery, state: FSMContext):
     db = Database()
     # Пытаемся потратить ключ доступа
     if not await db.spend_token(callback.from_user.id, 1):
+        data = await state.get_data()
+        current_index = int(callback.data.split('_')[2])
+        riddle = data['riddles'][current_index]
         await callback.message.edit_text(
             "У тебя нет 🔑 Ключа доступа!\n"
             "Попроси помощи у родителей или попробуй отгадать самостоятельно.",
             reply_markup=RiddlesKeyboard.get_navigation_keyboard(
-                int(callback.data.split('_')[2]),
-                5
+                current_index,
+                len(data['riddles']),
+                riddle['completed']
             )
         )
         await callback.answer()
@@ -175,7 +179,7 @@ async def show_riddle_answer(callback: CallbackQuery, state: FSMContext):
         f"{riddle['question']}\n\n"
         f"Ответ: {riddle['answer']}\n\n"
         "За просмотр ответа потрачен 1 🔑 Ключ доступа",
-        reply_markup=RiddlesKeyboard.get_navigation_keyboard(current_index, len(data['riddles']))
+        reply_markup=RiddlesKeyboard.get_navigation_keyboard(current_index, len(data['riddles']), riddle['completed'])
     )
     await callback.answer()
 
@@ -192,7 +196,7 @@ async def cancel_riddle_answer(callback: CallbackQuery, state: FSMContext):
         f"Загадка {current_index + 1}/5:\n\n"
         f"{riddle['question']}\n\n"
         f"{'✅ Разгадана!' if riddle['completed'] else '❌ Не разгадана'}",
-        reply_markup=RiddlesKeyboard.get_navigation_keyboard(current_index, len(data['riddles']))
+        reply_markup=RiddlesKeyboard.get_navigation_keyboard(current_index, len(data['riddles']), riddle['completed'])
     )
     await callback.answer()
 
