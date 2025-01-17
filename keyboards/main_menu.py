@@ -15,29 +15,21 @@ class MainMenuKeyboard:
         """
         kb = InlineKeyboardBuilder()
         
-        buttons = [
-            ("🎨 Творчество", "creativity"),
-            ("🧩 Ребусы", "puzzles"),
-            ("❓ Загадки", "riddles"),
-            ("🎯 Ежедневные задания", "daily_tasks"),
-            ("🏆 Достижения", "achievements"),
-            ("🤸‍♂️ Артикулярная гимнастика", "articular_gym"),
-            ("👄 Скороговорки", "tongue_twisters"),
-            ("🧠 Нейрогимнастика", "neuro_gym"),
-            ("👩‍👦 Для мам", "for_moms")
-        ]
+        # Добавляем кнопки в одну колонку
+        kb.add(InlineKeyboardButton(text="❓ Загадки", callback_data="riddles"))
+        kb.add(InlineKeyboardButton(text="🧠 Нейрогимнастика", callback_data="neuro_exercises"))
+        kb.add(InlineKeyboardButton(text="🤸 Артикулярная гимнастика", callback_data="articular_exercises"))
+        kb.add(InlineKeyboardButton(text="📅 Ежедневные задания", callback_data="daily_tasks"))
+        kb.add(InlineKeyboardButton(text="🏆 Достижения", callback_data="achievements"))
         
-        # Добавляем основные кнопки
-        for text, callback_data in buttons:
-            kb.add(InlineKeyboardButton(text=text, callback_data=callback_data))
-            
         # Добавляем кнопку админ-панели только для администраторов
         if user_id in config.ADMIN_IDS:
             kb.add(InlineKeyboardButton(
-                text="👑 Админ панель",
+                text="⚙️ Админ панель",
                 callback_data="admin_panel"
             ))
             
-        kb.adjust(1)  # Устанавливаем по 1 кнопке в ряд
+        # Устанавливаем одну кнопку в строке
+        kb.adjust(1)
         
         return kb.as_markup() 
