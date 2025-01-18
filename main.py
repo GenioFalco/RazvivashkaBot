@@ -2,35 +2,42 @@ import asyncio
 import logging
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
-from config import config
 from handlers import (
     common, achievements, daily_tasks,
-    riddles, exercises, puzzles, tongue_twisters
+    riddles, exercises, puzzles, tongue_twisters,
+    creativity
 )
+from database.database import Database
+from aiogram.enums import ParseMode
+from os import getenv
+from dotenv import load_dotenv
+
+# Загружаем переменные окружения
+load_dotenv()
+
+# Инициализируем бота
+bot = Bot(token=getenv("BOT_TOKEN"), parse_mode=ParseMode.HTML)
+dp = Dispatcher(storage=MemoryStorage())
+
+# Регистрируем все роутеры
+dp.include_router(common.router)
+dp.include_router(achievements.router)
+dp.include_router(daily_tasks.router)
+dp.include_router(riddles.router)
+dp.include_router(exercises.router)
+dp.include_router(puzzles.router)
+dp.include_router(tongue_twisters.router)
+dp.include_router(creativity.router)
 
 async def main():
-    # Включаем логирование
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
-    )
-
-    # Создаем объекты бота и диспетчера
-    bot = Bot(token=config.BOT_TOKEN)
-    dp = Dispatcher(storage=MemoryStorage())
-
-    # Регистрируем роутеры
-    dp.include_router(common.router)
-    dp.include_router(achievements.router)
-    dp.include_router(daily_tasks.router)
-    dp.include_router(riddles.router)
-    dp.include_router(exercises.router)
-    dp.include_router(puzzles.router)
-    dp.include_router(tongue_twisters.router)
-
-    # Пропускаем накопившиеся апдейты и запускаем polling
-    await bot.delete_webhook(drop_pending_updates=True)
+    # Инициализируем базу данных
+    db = Database()
+    await db.create_tables()
+    await db.initialize_videos()
+    
+    # Запускаем бота
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
     asyncio.run(main()) 

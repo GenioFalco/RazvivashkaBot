@@ -4,6 +4,7 @@ from aiogram.fsm.context import FSMContext
 from database.database import Database
 from keyboards.tongue_twisters import TongueTwistersKeyboard
 from keyboards.main_menu import MainMenuKeyboard
+import logging
 
 router = Router()
 
@@ -50,34 +51,57 @@ async def start_tongue_twisters(callback: CallbackQuery, state: FSMContext):
     )
     await callback.answer()
 
-@router.callback_query(F.data.startswith(("next_", "prev_")))
+@router.callback_query(F.data.startswith(("prev_twister_", "next_twister_")))
 async def navigate_twisters(callback: CallbackQuery, state: FSMContext):
-    """Навигация по скороговоркам"""
-    action, current_index = callback.data.split('_')
-    current_index = int(current_index)
-    
-    # Получаем данные из состояния
-    data = await state.get_data()
-    twisters = data.get('twisters', [])
-    
-    # Определяем новый индекс
-    new_index = current_index + 1 if action == "next" else current_index - 1
-    if not 0 <= new_index < len(twisters):
-        await callback.answer("Нет больше скороговорок в этом направлении")
-        return
-    
-    # Обновляем состояние
-    await state.update_data(current_index=new_index)
-    
-    # Показываем скороговорку
-    twister = twisters[new_index]
-    await callback.message.edit_text(
-        f"Скороговорка {new_index + 1}/3:\n\n"
-        f"{twister['text']}\n\n"
-        f"{'✅ Выполнена!' if twister['completed'] else '❌ Не выполнена'}",
-        reply_markup=TongueTwistersKeyboard.get_navigation_keyboard(new_index, len(twisters), twister['id'], twister['completed'])
-    )
-    await callback.answer()
+    """Навигация между скороговорками"""
+    try:
+        # Получаем направление и текущий индекс
+        direction = "prev" if callback.data.startswith("prev") else "next"
+        current_index = int(callback.data.split("_")[2])
+        
+        # Получаем данные из состояния
+        data = await state.get_data()
+        twisters = data.get('twisters', [])
+        
+        if not twisters:
+            await callback.message.answer("Ошибка: скороговорки не найдены")
+            return
+        
+        # Вычисляем новый индекс
+        new_index = current_index - 1 if direction == "prev" else current_index + 1
+        
+        # Проверяем границы
+        if new_index < 0 or new_index >= len(twisters):
+            await callback.answer("Больше скороговорок нет!")
+            return
+        
+        # Обновляем индекс в состоянии
+        await state.update_data(current_index=new_index)
+        
+        # Получаем статус выполнения
+        db = Database()
+        is_completed = await db.is_tongue_twister_completed(callback.from_user.id, twisters[new_index]['id'])
+        
+        # Формируем сообщение
+        message = f"Скороговорка {new_index + 1}/3:\n{twisters[new_index]['text']}"
+        
+        # Получаем клавиатуру
+        markup = TongueTwistersKeyboard.get_navigation_keyboard(
+            new_index,
+            len(twisters),
+            twisters[new_index]['id'],
+            is_completed
+        )
+        
+        await callback.message.answer(message, reply_markup=markup)
+        await callback.answer()
+        
+    except Exception as e:
+        logging.error(f"Error in navigate_twisters: {e}")
+        await callback.message.answer(
+            "Произошла ошибка при навигации между скороговорками. Попробуйте еще раз."
+        )
+        await callback.answer()
 
 @router.callback_query(F.data.startswith("complete_twister_"))
 async def complete_twister(callback: CallbackQuery, state: FSMContext):

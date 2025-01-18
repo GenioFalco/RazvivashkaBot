@@ -5,6 +5,7 @@ from config import config
 import re
 import random
 import asyncio
+import logging
 
 class Database:
     def __init__(self, db_path: str = config.DATABASE_PATH):
@@ -34,255 +35,134 @@ class Database:
     async def create_tables(self):
         """Создает необходимые таблицы в базе данных"""
         async with aiosqlite.connect(self.db_path) as db:
-            # Создание таблицы пользователей
+            # Создаем таблицу для токенов
+            await db.execute('''
+                CREATE TABLE IF NOT EXISTS tokens (
+                    id INTEGER PRIMARY KEY,
+                    emoji TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    description TEXT NOT NULL
+                )
+            ''')
+            
+            # Создаем таблицу для пользователей
             await db.execute('''
                 CREATE TABLE IF NOT EXISTS users (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    telegram_id INTEGER UNIQUE NOT NULL,
+                    telegram_id INTEGER PRIMARY KEY,
                     username TEXT,
                     full_name TEXT NOT NULL,
                     registration_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
             
-            # Создание таблицы достижений
+            # Создаем таблицу для достижений пользователей
             await db.execute('''
-                CREATE TABLE IF NOT EXISTS achievements (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                CREATE TABLE IF NOT EXISTS user_achievements (
                     user_id INTEGER,
                     token_id INTEGER,
                     count INTEGER DEFAULT 0,
-                    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (user_id, token_id),
                     FOREIGN KEY (user_id) REFERENCES users (telegram_id),
-                    FOREIGN KEY (token_id) REFERENCES tokens (id),
-                    UNIQUE(user_id, token_id)
+                    FOREIGN KEY (token_id) REFERENCES tokens (id)
                 )
             ''')
-
-            # Создание таблицы токенов
+            
+            # Создаем таблицу для ежедневных заданий
             await db.execute('''
-                CREATE TABLE IF NOT EXISTS tokens (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    emoji TEXT NOT NULL,
-                    name TEXT NOT NULL,
+                CREATE TABLE IF NOT EXISTS daily_tasks (
+                    id INTEGER PRIMARY KEY,
+                    text TEXT NOT NULL,
                     description TEXT NOT NULL
                 )
             ''')
-
-            # Инициализация токенов, если таблица пуста
-            async with db.execute('SELECT COUNT(*) FROM tokens') as cursor:
-                count = await cursor.fetchone()
-                if count[0] == 0:
-                    default_tokens = [
-                        ("🔑", "Ключ доступа", "Даётся за ежедневный вход"),
-                        ("⭐", "Звезда дня", "Даётся за выполнение заданий на день"),
-                        ("🧩", "Мастер ребусов", "Даётся за выполнение ребусов"),
-                        ("👄", "Говорун", "Даётся за выполнение скороговорок"),
-                        ("🧠", "Умник", "Даётся за выполнение нейрогимнастики"),
-                        ("🤸", "Гимнаст", "Даётся за выполнение артикулярной гимнастики"),
-                        ("❓", "Мудрец", "Даётся за выполнение загадок"),
-                        ("🏆", "Чемпион дня", "Даётся за выполнение всех заданий на день")
-                    ]
-                    await db.executemany(
-                        'INSERT INTO tokens (emoji, name, description) VALUES (?, ?, ?)',
-                        default_tokens
-                    )
-
-            # Создание таблицы ежедневных заданий
-            await db.execute('''
-                CREATE TABLE IF NOT EXISTS daily_tasks (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    task_text TEXT NOT NULL
-                )
-            ''')
-
-            # Создание таблицы для отслеживания выполненных заданий
+            
+            # Создаем таблицу для выполненных ежедневных заданий
             await db.execute('''
                 CREATE TABLE IF NOT EXISTS user_daily_tasks (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
                     user_id INTEGER,
                     task_id INTEGER,
-                    completed BOOLEAN DEFAULT FALSE,
-                    date DATE NOT NULL,
+                    completion_date DATE,
+                    PRIMARY KEY (user_id, task_id, completion_date),
                     FOREIGN KEY (user_id) REFERENCES users (telegram_id),
                     FOREIGN KEY (task_id) REFERENCES daily_tasks (id)
                 )
             ''')
-
-            # Добавляем начальные задания, если таблица пуста
-            async with db.execute('SELECT COUNT(*) FROM daily_tasks') as cursor:
-                count = await cursor.fetchone()
-                if count[0] == 0:
-                    default_tasks = [
-                        ("Сделай аппликацию из веток",),
-                        ("Нарисуй свою любимую игрушку",),
-                        ("Сделай зарядку вместе с родителями",),
-                        ("Спой свою любимую песенку",),
-                        ("Собери пазл",),
-                        ("Построй домик из подушек",),
-                        ("Нарисуй радугу",),
-                        ("Сделай открытку для друга",),
-                        ("Покорми птичек",),
-                        ("Помоги маме полить цветы",)
-                    ]
-                    await db.executemany(
-                        'INSERT INTO daily_tasks (task_text) VALUES (?)',
-                        default_tasks
-                    )
-
-            # Создание таблицы загадок
+            
+            # Создаем таблицу для загадок
             await db.execute('''
                 CREATE TABLE IF NOT EXISTS riddles (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    question TEXT NOT NULL,
+                    id INTEGER PRIMARY KEY,
+                    text TEXT NOT NULL,
                     answer TEXT NOT NULL
                 )
             ''')
-
-            # Создание таблицы для отслеживания загадок пользователей
+            
+            # Создаем таблицу для решенных загадок
             await db.execute('''
                 CREATE TABLE IF NOT EXISTS user_riddles (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
                     user_id INTEGER,
                     riddle_id INTEGER,
-                    completed BOOLEAN DEFAULT FALSE,
-                    date DATE NOT NULL,
+                    completion_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (user_id, riddle_id),
                     FOREIGN KEY (user_id) REFERENCES users (telegram_id),
                     FOREIGN KEY (riddle_id) REFERENCES riddles (id)
                 )
             ''')
-
-            # Добавляем начальные загадки, если таблица пуста
-            async with db.execute('SELECT COUNT(*) FROM riddles') as cursor:
-                count = await cursor.fetchone()
-                if count[0] == 0:
-                    default_riddles = [
-                        ("Не лает, не кусает, а в дом не пускает?", "Замок"),
-                        ("Два кольца, два конца, а посередине гвоздик.", "Ножницы"),
-                        ("Сидит дед, во сто шуб одет. Кто его раздевает, тот слезы проливает.", "Лук"),
-                        ("Зимой и летом одним цветом.", "Ёлка"),
-                        ("Без окон, без дверей, полна горница людей.", "Огурец"),
-                        ("Красная девица сидит в темнице, а коса на улице.", "Морковь"),
-                        ("Висит груша, нельзя скушать.", "Лампочка"),
-                        ("Не ездок, а со шпорами, не сторож, а всех будит.", "Петух"),
-                        ("Кто приходит, кто уходит, все ее за ручку водят.", "Дверь"),
-                        ("Стоит дуб, в нем двенадцать гнезд, в каждом гнезде по четыре яйца, в каждом яйце по семь цыпленков.", "Год")
-                    ]
-                    await db.executemany(
-                        'INSERT INTO riddles (question, answer) VALUES (?, ?)',
-                        default_riddles
-                    )
-
+            
             # Создаем таблицу для видео упражнений
-            await db.execute("""
+            await db.execute('''
                 CREATE TABLE IF NOT EXISTS exercise_videos (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    type TEXT NOT NULL,  -- 'neuro' или 'articular'
+                    id INTEGER PRIMARY KEY,
+                    type TEXT NOT NULL,
                     title TEXT NOT NULL,
                     description TEXT NOT NULL,
                     video_url TEXT NOT NULL
                 )
-            """)
+            ''')
             
-            # Создаем таблицу для отслеживания просмотров упражнений
-            await db.execute("""
+            # Создаем таблицу для просмотренных видео
+            await db.execute('''
                 CREATE TABLE IF NOT EXISTS user_exercise_views (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
                     user_id INTEGER,
                     video_id INTEGER,
-                    status TEXT NOT NULL,  -- 'full', 'partial', или 'not_done'
-                    date DATE NOT NULL,
+                    view_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (user_id, video_id),
                     FOREIGN KEY (user_id) REFERENCES users (telegram_id),
                     FOREIGN KEY (video_id) REFERENCES exercise_videos (id)
                 )
-            """)
+            ''')
             
-            # Создание таблицы ребусов
+            # Создаем таблицу для видео творчества
             await db.execute('''
-                CREATE TABLE IF NOT EXISTS puzzles (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    image_path TEXT NOT NULL,
-                    answer1 TEXT NOT NULL,
-                    answer2 TEXT NOT NULL,
-                    answer3 TEXT NOT NULL
+                CREATE TABLE IF NOT EXISTS creativity_videos (
+                    id INTEGER PRIMARY KEY,
+                    type TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    description TEXT NOT NULL,
+                    video_url TEXT NOT NULL,
+                    sequence_number INTEGER
                 )
             ''')
-
-            # Создание таблицы для отслеживания решенных ребусов
+            
+            # Создаем таблицу для выполненных творческих заданий
             await db.execute('''
-                CREATE TABLE IF NOT EXISTS user_puzzles (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                CREATE TABLE IF NOT EXISTS user_creativity_completions (
                     user_id INTEGER,
-                    puzzle_id INTEGER,
-                    solved1 BOOLEAN DEFAULT FALSE,
-                    solved2 BOOLEAN DEFAULT FALSE,
-                    solved3 BOOLEAN DEFAULT FALSE,
-                    date DATE NOT NULL,
+                    video_id INTEGER,
+                    completion_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (user_id, video_id),
                     FOREIGN KEY (user_id) REFERENCES users (telegram_id),
-                    FOREIGN KEY (puzzle_id) REFERENCES puzzles (id)
+                    FOREIGN KEY (video_id) REFERENCES creativity_videos (id)
                 )
             ''')
-
-            # Добавляем начальные ребусы, если таблица пуста
-            async with db.execute('SELECT COUNT(*) FROM puzzles') as cursor:
-                count = await cursor.fetchone()
-                if count[0] == 0:
-                    default_puzzles = [
-                        ('1.jpg', 'водопад', 'листопад', 'снегопад'),
-                        ('2.jpg', 'подвал', 'подъезд', 'подъем'),
-                        ('3.jpg', 'заслонка', 'застава', 'заставка')
-                    ]
-                    await db.executemany(
-                        'INSERT INTO puzzles (image_path, answer1, answer2, answer3) VALUES (?, ?, ?, ?)',
-                        default_puzzles
-                    )
-
-            # Создание таблицы скороговорок
+            
+            # Добавляем токен "Алмаз" если его нет
             await db.execute('''
-                CREATE TABLE IF NOT EXISTS tongue_twisters (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    text TEXT NOT NULL
-                )
+                INSERT OR IGNORE INTO tokens (id, emoji, name, description)
+                VALUES (9, "💎", "Алмаз", "Даётся за выполнение творческих мастер-классов")
             ''')
-
-            # Создание таблицы для отслеживания выполненных скороговорок
-            await db.execute('''
-                CREATE TABLE IF NOT EXISTS user_tongue_twisters (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER,
-                    twister_id INTEGER,
-                    completed BOOLEAN DEFAULT FALSE,
-                    date DATE NOT NULL,
-                    FOREIGN KEY (user_id) REFERENCES users (telegram_id),
-                    FOREIGN KEY (twister_id) REFERENCES tongue_twisters (id)
-                )
-            ''')
-
-            # Добавляем начальные скороговорки, если таблица пуста
-            async with db.execute('SELECT COUNT(*) FROM tongue_twisters') as cursor:
-                count = await cursor.fetchone()
-                if count[0] == 0:
-                    default_twisters = [
-                        ("Шла Саша по шоссе и сосала сушку",),
-                        ("Карл у Клары украл кораллы, а Клара у Карла украла кларнет",),
-                        ("На дворе трава, на траве дрова",),
-                        ("Ехал Грека через реку, видит Грека в реке рак",),
-                        ("Четыре чёрненьких чумазеньких чертёнка чертили чёрными чернилами чертёж",),
-                        ("От топота копыт пыль по полю летит",),
-                        ("Бык тупогуб, тупогубенький бычок, у быка бела губа была тупа",),
-                        ("Три сороки-тараторки тараторили на горке",),
-                        ("Рыла свинья белорыла, тупорыла; полдвора рылом изрыла, вырыла, подрыла",),
-                        ("Всех скороговорок не перескороговоришь, не перевыскороговоришь",)
-                    ]
-                    await db.executemany(
-                        'INSERT INTO tongue_twisters (text) VALUES (?)',
-                        default_twisters
-                    )
             
             await db.commit()
-            
-        # Инициализируем видео после создания таблиц
-        await self.initialize_videos()
 
     async def get_all_tokens(self) -> List[Dict]:
         """Получение списка всех токенов"""
@@ -1068,3 +948,168 @@ class Database:
         except Exception as e:
             print(f"Error in complete_tongue_twister: {e}")
             return False 
+
+    async def initialize_videos(self):
+        """Инициализирует видео для упражнений и творчества"""
+        async with aiosqlite.connect(self.db_path) as db:
+            # Добавляем видео для творчества
+            creativity_videos = [
+                (
+                    "drawing",
+                    "Рисуем цветок",
+                    "Научимся рисовать красивый цветок простым карандашом",
+                    "https://drive.google.com/file/d/18LJeTjNnUTVV2jQIApkSgDlJL_FC95um/view?usp=sharing",
+                    1
+                ),
+                (
+                    "paper",
+                    "Оригами лебедь",
+                    "Создаем изящного лебедя в технике оригами",
+                    "https://drive.google.com/file/d/1XnvBN3xpaWDlMzR8cmf-SPXJTUVdVcMJ/view?usp=sharing",
+                    1
+                ),
+                (
+                    "sculpting",
+                    "Лепим котика",
+                    "Учимся лепить милого котика из пластилина",
+                    "https://drive.google.com/file/d/1Cal7FTL6zlu55W_mBYkrCFhQmRDh47xv/view?usp=sharing",
+                    1
+                )
+            ]
+            
+            await db.executemany('''
+                INSERT OR IGNORE INTO creativity_videos 
+                (type, title, description, video_url, sequence_number)
+                VALUES (?, ?, ?, ?, ?)
+            ''', creativity_videos)
+            
+            await db.commit()
+
+    async def get_next_creativity_video(self, user_id: int, section: str, current_id: int = None, direction: str = None) -> dict:
+        """Получает следующее видео для творчества"""
+        async with aiosqlite.connect(self.db_path) as db:
+            if section == "sculpting":
+                # Для лепки используем последовательный порядок
+                if direction == "prev" and current_id:
+                    query = '''
+                        SELECT v.* FROM creativity_videos v
+                        WHERE v.type = ? AND v.sequence_number < (
+                            SELECT sequence_number FROM creativity_videos WHERE id = ?
+                        )
+                        ORDER BY v.sequence_number DESC LIMIT 1
+                    '''
+                    params = (section, current_id)
+                elif direction == "next" and current_id:
+                    query = '''
+                        SELECT v.* FROM creativity_videos v
+                        WHERE v.type = ? AND v.sequence_number > (
+                            SELECT sequence_number FROM creativity_videos WHERE id = ?
+                        )
+                        ORDER BY v.sequence_number ASC LIMIT 1
+                    '''
+                    params = (section, current_id)
+                else:
+                    # Получаем первое видео
+                    query = '''
+                        SELECT v.* FROM creativity_videos v
+                        WHERE v.type = ?
+                        ORDER BY v.sequence_number ASC LIMIT 1
+                    '''
+                    params = (section,)
+            else:
+                # Для рисования и бумаги используем случайный порядок
+                if direction and current_id:
+                    # При навигации исключаем текущее видео
+                    query = '''
+                        SELECT v.* FROM creativity_videos v
+                        WHERE v.type = ? AND v.id != ?
+                        ORDER BY RANDOM() LIMIT 1
+                    '''
+                    params = (section, current_id)
+                else:
+                    # При первом показе берем любое видео
+                    query = '''
+                        SELECT v.* FROM creativity_videos v
+                        WHERE v.type = ?
+                        ORDER BY RANDOM() LIMIT 1
+                    '''
+                    params = (section,)
+            
+            try:
+                async with db.execute(query, params) as cursor:
+                    row = await cursor.fetchone()
+                    if row:
+                        return {
+                            'id': row[0],
+                            'type': row[1],
+                            'title': row[2],
+                            'description': row[3],
+                            'video_url': row[4],
+                            'sequence_number': row[5] if row[5] else None
+                        }
+                    return None
+            except Exception as e:
+                logging.error(f"Error getting next creativity video: {e}")
+                return None
+
+    async def complete_creativity_masterclass(self, user_id: int, video_id: int) -> bool:
+        """Отмечает мастер-класс как выполненный и выдает награду"""
+        async with aiosqlite.connect(self.db_path) as db:
+            try:
+                # Проверяем, не было ли уже выполнено это видео
+                cursor = await db.execute('''
+                    SELECT COUNT(*) FROM user_creativity_completions
+                    WHERE user_id = ? AND video_id = ?
+                ''', (user_id, video_id))
+                count = (await cursor.fetchone())[0]
+                if count > 0:
+                    return True  # Видео уже было выполнено
+
+                # Добавляем запись о выполнении
+                await db.execute('''
+                    INSERT INTO user_creativity_completions (user_id, video_id)
+                    VALUES (?, ?)
+                ''', (user_id, video_id))
+                
+                # Проверяем существование записи для токена "Алмаз"
+                await db.execute('''
+                    INSERT OR IGNORE INTO achievements (user_id, token_id, count)
+                    VALUES (?, 9, 0)
+                ''', (user_id,))
+                
+                # Увеличиваем количество алмазов
+                await db.execute('''
+                    UPDATE achievements 
+                    SET count = count + 1,
+                        last_updated = CURRENT_TIMESTAMP
+                    WHERE user_id = ? AND token_id = 9
+                ''', (user_id,))
+                
+                await db.commit()
+                return True
+            except Exception as e:
+                logging.error(f"Error completing creativity masterclass: {e}")
+                return False
+
+    async def get_creativity_video_by_id(self, video_id: int) -> dict:
+        """Получает информацию о видео по ID"""
+        async with aiosqlite.connect(self.db_path) as db:
+            try:
+                cursor = await db.execute('''
+                    SELECT * FROM creativity_videos WHERE id = ?
+                ''', (video_id,))
+                
+                row = await cursor.fetchone()
+                if row:
+                    return {
+                        'id': row[0],
+                        'type': row[1],
+                        'title': row[2],
+                        'description': row[3],
+                        'video_url': row[4],
+                        'sequence_number': row[5] if row[5] else None
+                    }
+                return None
+            except Exception as e:
+                print(f"Error getting creativity video by id: {e}")
+                return None 

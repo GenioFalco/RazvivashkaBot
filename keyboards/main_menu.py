@@ -22,6 +22,7 @@ class MainMenuKeyboard:
             ("👄 Скороговорки", "tongue_twisters"),
             ("🧠 Нейрогимнастика", "neuro_exercises"),
             ("🤸 Артикулярная гимнастика", "articular_exercises"),
+            ("🎨 Творчество", "creativity"),
             ("🏆 Достижения", "achievements")
         ]
         
