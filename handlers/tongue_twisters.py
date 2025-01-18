@@ -37,15 +37,6 @@ async def start_tongue_twisters(callback: CallbackQuery, state: FSMContext):
     db = Database()
     twisters, completed_count = await db.get_user_tongue_twisters(callback.from_user.id)
     
-    if completed_count == 3:
-        await callback.message.edit_text(
-            "🎉 Поздравляем! Ты уже выполнил все скороговорки на сегодня!\n"
-            "Возвращайся завтра за новыми упражнениями для развития речи!",
-            reply_markup=TongueTwistersKeyboard.get_back_button()
-        )
-        await callback.answer()
-        return
-    
     # Сохраняем скороговорки в состояние
     await state.update_data(twisters=twisters, current_index=0)
     
@@ -111,9 +102,10 @@ async def complete_twister(callback: CallbackQuery, state: FSMContext):
             text = (
                 "🎉 Поздравляем! Ты выполнил все скороговорки на сегодня!\n"
                 f"В награду ты получаешь особый приз: {super_token['emoji']} {super_token['name']}!\n"
-                "Возвращайся завтра за новыми упражнениями! 🌟"
+                "Возвращайся завтра за новыми упражнениями! 🌟\n\n"
+                f"Скороговорка {current_index + 1}/3:\n"
+                f"{twisters[current_index]['text']}"
             )
-            markup = TongueTwistersKeyboard.get_back_button()
         else:
             # Получаем обычный токен
             token = await db.get_token_by_id(4)  # id=4 для токена "Говорун"
@@ -124,12 +116,14 @@ async def complete_twister(callback: CallbackQuery, state: FSMContext):
                 f"Скороговорка {current_index + 1}/3:\n"
                 f"{twisters[current_index]['text']}"
             )
-            markup = TongueTwistersKeyboard.get_navigation_keyboard(
-                current_index,
-                len(twisters),
-                twisters[current_index]['id'],
-                True  # Скороговорка теперь выполнена
-            )
+        
+        # Всегда показываем навигационную клавиатуру с пометкой is_completed=True
+        markup = TongueTwistersKeyboard.get_navigation_keyboard(
+            current_index,
+            len(twisters),
+            twisters[current_index]['id'],
+            True  # Скороговорка теперь выполнена
+        )
     else:
         text = "Произошла ошибка при сохранении результата."
         markup = TongueTwistersKeyboard.get_back_button()
