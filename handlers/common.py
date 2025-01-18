@@ -47,17 +47,16 @@ async def cmd_start(message: Message):
     db = Database()
     await db.create_tables()
     
-    # Добавляем пользователя в базу данных
     await db.add_user(
         telegram_id=message.from_user.id,
         username=message.from_user.username,
         full_name=message.from_user.full_name
     )
     
-    # Отправляем приветственное сообщение с клавиатурой, учитывая права пользователя
     await message.answer(
-        "Вас приветствует бот Развивашка!\n"
-        "Здесь вы можете найти множество техник для совместного времяпровождения с ребенком.",
+        "Привет! Я бот-развивашка! 🌟\n"
+        "Я помогу тебе развиваться и получать награды за достижения!\n\n"
+        "Выбери интересующий тебя раздел в меню:",
         reply_markup=MainMenuKeyboard.get_keyboard(user_id=message.from_user.id)
     )
 
@@ -224,7 +223,7 @@ async def back_to_admin_panel(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data.in_({
     "creativity",
-    "articular_gym", "tongue_twisters", "neuro_gym",
+    "articular_gym", "neuro_gym",
     "for_moms"
 }))
 async def process_callback(callback: CallbackQuery):
@@ -232,7 +231,6 @@ async def process_callback(callback: CallbackQuery):
     responses = {
         "creativity": "🎨 Раздел Творчество в разработке",
         "articular_gym": "🤸‍♂️ Раздел Артикулярная гимнастика в разработке",
-        "tongue_twisters": "👄 Раздел Скороговорки в разработке",
         "neuro_gym": "🧠 Раздел Нейрогимнастика в разработке",
         "for_moms": "👩‍👦 Раздел Для мам в разработке"
     }
@@ -244,16 +242,9 @@ async def process_callback(callback: CallbackQuery):
 
 @router.callback_query(F.data == "back_to_main")
 async def back_to_main_menu(callback: CallbackQuery):
-    """Обработчик кнопки возврата в главное меню"""
-    try:
-        await callback.message.edit_text(
-            "Главное меню:",
-            reply_markup=MainMenuKeyboard.get_keyboard(user_id=callback.from_user.id)
-        )
-    except Exception as e:
-        # Если не удалось отредактировать сообщение, отправляем новое
-        await callback.message.answer(
-            "Главное меню:",
-            reply_markup=MainMenuKeyboard.get_keyboard(user_id=callback.from_user.id)
-        )
+    """Обработчик возврата в главное меню"""
+    await callback.message.edit_text(
+        "Выбери интересующий тебя раздел:",
+        reply_markup=MainMenuKeyboard.get_keyboard(user_id=callback.from_user.id)
+    )
     await callback.answer() 

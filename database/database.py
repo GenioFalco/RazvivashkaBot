@@ -237,6 +237,48 @@ class Database:
                         default_puzzles
                     )
 
+            # Создание таблицы скороговорок
+            await db.execute('''
+                CREATE TABLE IF NOT EXISTS tongue_twisters (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    text TEXT NOT NULL
+                )
+            ''')
+
+            # Создание таблицы для отслеживания выполненных скороговорок
+            await db.execute('''
+                CREATE TABLE IF NOT EXISTS user_tongue_twisters (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER,
+                    twister_id INTEGER,
+                    completed BOOLEAN DEFAULT FALSE,
+                    date DATE NOT NULL,
+                    FOREIGN KEY (user_id) REFERENCES users (telegram_id),
+                    FOREIGN KEY (twister_id) REFERENCES tongue_twisters (id)
+                )
+            ''')
+
+            # Добавляем начальные скороговорки, если таблица пуста
+            async with db.execute('SELECT COUNT(*) FROM tongue_twisters') as cursor:
+                count = await cursor.fetchone()
+                if count[0] == 0:
+                    default_twisters = [
+                        ("Шла Саша по шоссе и сосала сушку",),
+                        ("Карл у Клары украл кораллы, а Клара у Карла украла кларнет",),
+                        ("На дворе трава, на траве дрова",),
+                        ("Ехал Грека через реку, видит Грека в реке рак",),
+                        ("Четыре чёрненьких чумазеньких чертёнка чертили чёрными чернилами чертёж",),
+                        ("От топота копыт пыль по полю летит",),
+                        ("Бык тупогуб, тупогубенький бычок, у быка бела губа была тупа",),
+                        ("Три сороки-тараторки тараторили на горке",),
+                        ("Рыла свинья белорыла, тупорыла; полдвора рылом изрыла, вырыла, подрыла",),
+                        ("Всех скороговорок не перескороговоришь, не перевыскороговоришь",)
+                    ]
+                    await db.executemany(
+                        'INSERT INTO tongue_twisters (text) VALUES (?)',
+                        default_twisters
+                    )
+            
             await db.commit()
             
         # Инициализируем видео после создания таблиц
@@ -920,3 +962,109 @@ class Database:
                     await db.commit()
                     return True
                 return False 
+
+    async def get_user_tongue_twisters(self, user_id: int) -> Tuple[List[Dict], int]:
+        """Получает скороговорки пользователя на сегодня и количество выполненных"""
+        today = date.today()
+        async with aiosqlite.connect(self.db_path) as db:
+            # Проверяем, есть ли у пользователя скороговорки на сегодня
+            async with db.execute('''
+                SELECT COUNT(*) FROM user_tongue_twisters 
+                WHERE user_id = ? AND date = ?
+            ''', (user_id, today)) as cursor:
+                count = await cursor.fetchone()
+                
+            if count[0] == 0:
+                # Выбираем 3 случайные скороговорки
+                async with db.execute('SELECT id, text FROM tongue_twisters') as cursor:
+                    all_twisters = await cursor.fetchall()
+                    selected_twisters = random.sample(all_twisters, 3)
+                    
+                # Добавляем скороговорки пользователю
+                for twister in selected_twisters:
+                    await db.execute('''
+                        INSERT INTO user_tongue_twisters (user_id, twister_id, date)
+                        VALUES (?, ?, ?)
+                    ''', (user_id, twister[0], today))
+                await db.commit()
+            
+            # Получаем текущие скороговорки пользователя
+            async with db.execute('''
+                SELECT tt.id, tt.text, utt.completed 
+                FROM tongue_twisters tt
+                JOIN user_tongue_twisters utt ON tt.id = utt.twister_id
+                WHERE utt.user_id = ? AND utt.date = ?
+            ''', (user_id, today)) as cursor:
+                twisters = await cursor.fetchall()
+                twisters_list = [{
+                    'id': twister[0],
+                    'text': twister[1],
+                    'completed': bool(twister[2])
+                } for twister in twisters]
+                completed_count = sum(1 for twister in twisters_list if twister['completed'])
+                
+                return twisters_list, completed_count
+
+    async def complete_tongue_twister(self, user_id: int, twister_id: int) -> bool:
+        """Отмечает скороговорку как выполненную и начисляет токен"""
+        try:
+            async with aiosqlite.connect(self.db_path) as db:
+                today = date.today()
+                
+                # Проверяем, не была ли скороговорка уже выполнена
+                async with db.execute('''
+                    SELECT completed FROM user_tongue_twisters
+                    WHERE user_id = ? AND twister_id = ? AND date = ?
+                ''', (user_id, twister_id, today)) as cursor:
+                    result = await cursor.fetchone()
+                    if result and result[0]:
+                        return False  # Скороговорка уже выполнена
+                
+                # Отмечаем скороговорку как выполненную
+                await db.execute('''
+                    UPDATE user_tongue_twisters 
+                    SET completed = TRUE 
+                    WHERE user_id = ? AND twister_id = ? AND date = ?
+                ''', (user_id, twister_id, today))
+                
+                # Проверяем существование записи в achievements для токена "Говорун"
+                await db.execute('''
+                    INSERT OR IGNORE INTO achievements (user_id, token_id, count)
+                    VALUES (?, 4, 0)
+                ''', (user_id,))
+                
+                # Увеличиваем количество токенов за выполнение скороговорки
+                await db.execute('''
+                    UPDATE achievements 
+                    SET count = count + 1,
+                        last_updated = CURRENT_TIMESTAMP
+                    WHERE user_id = ? AND token_id = 4
+                ''', (user_id,))
+                
+                # Проверяем, все ли скороговорки выполнены
+                async with db.execute('''
+                    SELECT COUNT(*) FROM user_tongue_twisters
+                    WHERE user_id = ? AND date = ? AND completed = TRUE
+                ''', (user_id, today)) as cursor:
+                    completed_count = (await cursor.fetchone())[0]
+                    
+                # Если выполнены все 3 скороговорки, начисляем дополнительный токен
+                if completed_count == 3:
+                    # Проверяем существование записи для токена "Чемпион дня"
+                    await db.execute('''
+                        INSERT OR IGNORE INTO achievements (user_id, token_id, count)
+                        VALUES (?, 8, 0)
+                    ''', (user_id,))
+                    
+                    await db.execute('''
+                        UPDATE achievements 
+                        SET count = count + 1,
+                            last_updated = CURRENT_TIMESTAMP
+                        WHERE user_id = ? AND token_id = 8
+                    ''', (user_id,))
+                
+                await db.commit()
+                return True
+        except Exception as e:
+            print(f"Error in complete_tongue_twister: {e}")
+            return False 
