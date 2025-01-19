@@ -11,5 +11,6 @@ class Config:
     BOT_TOKEN: str = getenv("BOT_TOKEN")
     ADMIN_IDS: List[int] = field(default_factory=lambda: [int(id.strip()) for id in getenv("ADMIN_IDS", "").split(",") if id.strip()])
     DATABASE_PATH: str = "database/razvivashka.db"
+    PHOTO_CHANNEL_ID: str = getenv("PHOTO_CHANNEL_ID", "@doskadlavsex")  # ID канала для фотографий
 
 config = Config() 

@@ -98,6 +98,20 @@ async def send_video(bot, chat_id, video_url, caption, reply_markup=None):
 async def show_exercise_menu(callback: CallbackQuery, state: FSMContext):
     """Показывает меню раздела упражнений"""
     exercise_type = 'neuro' if callback.data == "neuro_exercises" else 'articular'
+    
+    db = Database()
+    # Проверяем доступ к функции
+    has_access = await db.check_feature_access(callback.from_user.id, exercise_type + '_exercises')
+    if not has_access:
+        await callback.message.edit_text(
+            "⭐ Доступ к упражнениям ограничен!\n\n"
+            "Для доступа к этому разделу необходима подписка.\n"
+            "Перейдите в раздел «Для мам», чтобы узнать подробности.",
+            reply_markup=MainMenuKeyboard.get_keyboard(callback.from_user.id)
+        )
+        await callback.answer()
+        return
+    
     info = EXERCISE_DESCRIPTIONS[exercise_type]
     
     # Сохраняем тип упражнения в состояние

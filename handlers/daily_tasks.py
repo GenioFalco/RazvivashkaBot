@@ -12,6 +12,20 @@ router = Router()
 async def show_daily_tasks_menu(callback: CallbackQuery):
     """Показывает главное меню раздела ежедневных заданий"""
     db = Database()
+    
+    # Проверяем доступ к функции
+    has_access = await db.check_feature_access(callback.from_user.id, 'daily_tasks')
+    if not has_access:
+        await callback.message.edit_text(
+            "⭐ Доступ к ежедневным заданиям ограничен!\n\n"
+            "Вы уже использовали бесплатную попытку.\n"
+            "Для продолжения необходима подписка.\n\n"
+            "Перейдите в раздел «Для мам», чтобы узнать подробности.",
+            reply_markup=MainMenuKeyboard.get_keyboard(callback.from_user.id)
+        )
+        await callback.answer()
+        return
+    
     tasks, completed = await db.get_user_daily_tasks(callback.from_user.id)
     
     if completed == 5:
@@ -38,6 +52,20 @@ async def show_daily_tasks_menu(callback: CallbackQuery):
 async def show_next_task(callback: CallbackQuery):
     """Показывает следующее невыполненное задание"""
     db = Database()
+    
+    # Проверяем доступ к функции
+    has_access = await db.check_feature_access(callback.from_user.id, 'daily_tasks')
+    if not has_access:
+        await callback.message.edit_text(
+            "⭐ Доступ к ежедневным заданиям ограничен!\n\n"
+            "Вы уже использовали бесплатную попытку.\n"
+            "Для продолжения необходима подписка.\n\n"
+            "Перейдите в раздел «Для мам», чтобы узнать подробности.",
+            reply_markup=MainMenuKeyboard.get_keyboard(callback.from_user.id)
+        )
+        await callback.answer()
+        return
+    
     tasks, completed = await db.get_user_daily_tasks(callback.from_user.id)
     
     if completed == 5:
@@ -67,12 +95,29 @@ async def show_next_task(callback: CallbackQuery):
 @router.callback_query(F.data.startswith("complete_task_"))
 async def complete_task(callback: CallbackQuery):
     """Обрабатывает выполнение задания"""
-    task_id = int(callback.data.split("_")[2])
     db = Database()
+    
+    # Проверяем доступ к функции
+    has_access = await db.check_feature_access(callback.from_user.id, 'daily_tasks')
+    if not has_access:
+        await callback.message.edit_text(
+            "⭐ Доступ к ежедневным заданиям ограничен!\n\n"
+            "Вы уже использовали бесплатную попытку.\n"
+            "Для продолжения необходима подписка.\n\n"
+            "Перейдите в раздел «Для мам», чтобы узнать подробности.",
+            reply_markup=MainMenuKeyboard.get_keyboard(callback.from_user.id)
+        )
+        await callback.answer()
+        return
+    
+    task_id = int(callback.data.split("_")[2])
     
     # Отмечаем задание как выполненное
     success = await db.complete_daily_task(callback.from_user.id, task_id)
     if success:
+        # Увеличиваем счетчик использования функции
+        await db.increment_feature_attempt(callback.from_user.id, 'daily_tasks')
+        
         # Проверяем количество выполненных заданий
         tasks, completed = await db.get_user_daily_tasks(callback.from_user.id)
         

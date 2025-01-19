@@ -15,6 +15,20 @@ class PuzzleStates(StatesGroup):
 @router.callback_query(F.data == "puzzles")
 async def show_puzzles_menu(callback: CallbackQuery):
     """Показывает меню ребусов"""
+    db = Database()
+    
+    # Проверяем доступ к функции
+    has_access = await db.check_feature_access(callback.from_user.id, 'puzzles')
+    if not has_access:
+        await callback.message.edit_text(
+            "⭐ Доступ к ребусам ограничен!\n\n"
+            "Для доступа к этому разделу необходима подписка.\n"
+            "Перейдите в раздел «Для мам», чтобы узнать подробности.",
+            reply_markup=MainMenuKeyboard.get_keyboard(callback.from_user.id)
+        )
+        await callback.answer()
+        return
+    
     await callback.message.edit_text(
         "🧩 Добро пожаловать в раздел Ребусы!\n\n"
         "Здесь тебя ждут интересные ребусы, которые помогут развить "

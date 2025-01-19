@@ -15,6 +15,20 @@ class RiddleStates(StatesGroup):
 @router.callback_query(F.data == "riddles")
 async def show_riddles_menu(callback: CallbackQuery):
     """Показывает меню загадок"""
+    db = Database()
+    
+    # Проверяем доступ к функции
+    has_access = await db.check_feature_access(callback.from_user.id, 'riddles')
+    if not has_access:
+        await callback.message.edit_text(
+            "⭐ Доступ к загадкам ограничен!\n\n"
+            "Для доступа к этому разделу необходима подписка.\n"
+            "Перейдите в раздел «Для мам», чтобы узнать подробности.",
+            reply_markup=MainMenuKeyboard.get_keyboard(callback.from_user.id)
+        )
+        await callback.answer()
+        return
+    
     await callback.message.edit_text(
         "🎯 Добро пожаловать в раздел Загадки!\n\n"
         "Здесь тебя ждут интересные загадки, которые помогут развить "

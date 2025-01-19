@@ -3,7 +3,7 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.filters import Command, CommandStart
 from database.database import Database
 from keyboards.main_menu import MainMenuKeyboard
-import config
+from config import config
 
 router = Router()
 
@@ -57,5 +57,15 @@ async def show_admin_panel(callback: CallbackQuery):
     await callback.message.answer(
         "⚙️ Админ-панель временно недоступна",
         reply_markup=MainMenuKeyboard.get_keyboard(callback.from_user.id)
+    )
+    await callback.answer()
+
+@router.callback_query(F.data == "photo_board")
+async def show_photo_board(callback: CallbackQuery):
+    """Открывает канал с фотографиями"""
+    await callback.message.edit_text(
+        f"🎨 Здесь ты можешь посмотреть все работы наших учеников!\n\n"
+        f"Присоединяйся к нашему каналу: {config.PHOTO_CHANNEL_ID}\n"
+        f"Там ты найдешь много интересных и красивых работ!"
     )
     await callback.answer() 

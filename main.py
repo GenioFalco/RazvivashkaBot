@@ -5,7 +5,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from handlers import (
     common, achievements, daily_tasks,
     riddles, exercises, puzzles, tongue_twisters,
-    creativity
+    creativity, subscriptions
 )
 from database.database import Database
 from aiogram.enums import ParseMode
@@ -28,12 +28,14 @@ dp.include_router(exercises.router)
 dp.include_router(puzzles.router)
 dp.include_router(tongue_twisters.router)
 dp.include_router(creativity.router)
+dp.include_router(subscriptions.router)
 
 async def main():
     # Инициализируем базу данных
     db = Database()
     await db.create_tables()
     await db.initialize_videos()
+    await db.initialize_subscriptions()  # Инициализируем базовые подписки
     
     # Запускаем бота
     await dp.start_polling(bot)

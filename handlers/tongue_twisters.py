@@ -19,6 +19,20 @@ MOTIVATIONAL_MESSAGES = [
 @router.callback_query(F.data == "tongue_twisters")
 async def show_tongue_twisters_menu(callback: CallbackQuery):
     """Показывает меню скороговорок"""
+    db = Database()
+    
+    # Проверяем доступ к функции
+    has_access = await db.check_feature_access(callback.from_user.id, 'tongue_twisters')
+    if not has_access:
+        await callback.message.edit_text(
+            "⭐ Доступ к скороговоркам ограничен!\n\n"
+            "Для доступа к этому разделу необходима подписка.\n"
+            "Перейдите в раздел «Для мам», чтобы узнать подробности.",
+            reply_markup=MainMenuKeyboard.get_keyboard(callback.from_user.id)
+        )
+        await callback.answer()
+        return
+    
     await callback.message.edit_text(
         "👄 Добро пожаловать в раздел Скороговорки!\n\n"
         "Здесь тебя ждут интересные скороговорки, которые помогут:\n"

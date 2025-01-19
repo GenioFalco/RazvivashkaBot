@@ -6,6 +6,7 @@ from database.database import Database
 from keyboards.creativity import CreativityKeyboard
 from keyboards.main_menu import MainMenuKeyboard
 from handlers.exercises import send_video, get_direct_download_link
+from config import config
 import random
 import logging
 
@@ -78,6 +79,34 @@ async def show_section_menu(callback: CallbackQuery, state: FSMContext):
     section = callback.data.split("_")[1]
     info = SECTION_DESCRIPTIONS.get(section, {})
     
+    db = Database()
+    # Проверяем доступ к функции для всех разделов, кроме рисования
+    if section in ["paper", "sculpting"]:
+        # Для бумаги и лепки всегда требуется подписка
+        subscription = await db.get_user_subscription(callback.from_user.id)
+        if not subscription:
+            await callback.message.edit_text(
+                "⭐ Доступ к этому разделу ограничен!\n\n"
+                "Для доступа к разделу необходима подписка.\n"
+                "Перейдите в раздел «Для мам», чтобы узнать подробности.",
+                reply_markup=MainMenuKeyboard.get_keyboard(callback.from_user.id)
+            )
+            await callback.answer()
+            return
+    elif section == "drawing":
+        # Для рисования проверяем бесплатную попытку
+        has_access = await db.check_feature_access(callback.from_user.id, 'drawing')
+        if not has_access:
+            await callback.message.edit_text(
+                "⭐ Доступ к мастер-классам ограничен!\n\n"
+                "Вы уже использовали бесплатную попытку.\n"
+                "Для продолжения необходима подписка.\n\n"
+                "Перейдите в раздел «Для мам», чтобы узнать подробности.",
+                reply_markup=MainMenuKeyboard.get_keyboard(callback.from_user.id)
+            )
+            await callback.answer()
+            return
+    
     await state.update_data(current_section=section)
     
     await callback.message.edit_text(
@@ -93,9 +122,40 @@ async def start_masterclass(callback: CallbackQuery, state: FSMContext):
     section = data.get("current_section")
     
     db = Database()
+    # Проверяем доступ к функции для всех разделов
+    if section in ["paper", "sculpting"]:
+        # Для бумаги и лепки всегда требуется подписка
+        subscription = await db.get_user_subscription(callback.from_user.id)
+        if not subscription:
+            await callback.message.edit_text(
+                "⭐ Доступ к этому разделу ограничен!\n\n"
+                "Для доступа к разделу необходима подписка.\n"
+                "Перейдите в раздел «Для мам», чтобы узнать подробности.",
+                reply_markup=MainMenuKeyboard.get_keyboard(callback.from_user.id)
+            )
+            await callback.answer()
+            return
+    elif section == "drawing":
+        # Для рисования проверяем бесплатную попытку
+        has_access = await db.check_feature_access(callback.from_user.id, 'drawing')
+        if not has_access:
+            await callback.message.edit_text(
+                "⭐ Доступ к мастер-классам ограничен!\n\n"
+                "Вы уже использовали бесплатную попытку.\n"
+                "Для продолжения необходима подписка.\n\n"
+                "Перейдите в раздел «Для мам», чтобы узнать подробности.",
+                reply_markup=MainMenuKeyboard.get_keyboard(callback.from_user.id)
+            )
+            await callback.answer()
+            return
+    
     video = await db.get_next_creativity_video(callback.from_user.id, section)
     
     if video:
+        # Увеличиваем счетчик использования для рисования
+        if section == "drawing":
+            await db.increment_feature_attempt(callback.from_user.id, 'drawing')
+        
         # Проверяем, было ли видео уже выполнено
         is_completed = await db.is_creativity_masterclass_completed(callback.from_user.id, video['id'])
         
@@ -151,8 +211,38 @@ async def send_masterclass_video(message, video, is_completed):
 async def complete_masterclass(callback: CallbackQuery, state: FSMContext):
     """Отмечает мастер-класс как выполненный"""
     try:
-        video_id = int(callback.data.split('_')[2])
+        data = await state.get_data()
+        section = data.get("current_section")
+        
         db = Database()
+        # Проверяем доступ к функции для всех разделов
+        if section in ["paper", "sculpting"]:
+            # Для бумаги и лепки всегда требуется подписка
+            subscription = await db.get_user_subscription(callback.from_user.id)
+            if not subscription:
+                await callback.message.edit_text(
+                    "⭐ Доступ к этому разделу ограничен!\n\n"
+                    "Для доступа к разделу необходима подписка.\n"
+                    "Перейдите в раздел «Для мам», чтобы узнать подробности.",
+                    reply_markup=MainMenuKeyboard.get_keyboard(callback.from_user.id)
+                )
+                await callback.answer()
+                return
+        elif section == "drawing":
+            # Для рисования проверяем бесплатную попытку
+            has_access = await db.check_feature_access(callback.from_user.id, 'drawing')
+            if not has_access:
+                await callback.message.edit_text(
+                    "⭐ Доступ к мастер-классам ограничен!\n\n"
+                    "Вы уже использовали бесплатную попытку.\n"
+                    "Для продолжения необходима подписка.\n\n"
+                    "Перейдите в раздел «Для мам», чтобы узнать подробности.",
+                    reply_markup=MainMenuKeyboard.get_keyboard(callback.from_user.id)
+                )
+                await callback.answer()
+                return
+        
+        video_id = int(callback.data.split('_')[2])
         
         # Получаем текущее видео
         current_video = await db.get_creativity_video_by_id(video_id)
@@ -167,6 +257,10 @@ async def complete_masterclass(callback: CallbackQuery, state: FSMContext):
         success = await db.complete_creativity_masterclass(callback.from_user.id, video_id)
         
         if success:
+            # Увеличиваем счетчик использования функции для раздела рисования
+            if section == "drawing":
+                await db.increment_feature_attempt(callback.from_user.id, 'drawing')
+            
             # Получаем токен "Алмаз"
             token = await db.get_token_by_id(9)
             if token:
@@ -211,6 +305,33 @@ async def postpone_masterclass(callback: CallbackQuery, state: FSMContext):
     section = data.get("current_section")
     
     db = Database()
+    # Проверяем доступ к функции для всех разделов
+    if section in ["paper", "sculpting"]:
+        # Для бумаги и лепки всегда требуется подписка
+        subscription = await db.get_user_subscription(callback.from_user.id)
+        if not subscription:
+            await callback.message.edit_text(
+                "⭐ Доступ к этому разделу ограничен!\n\n"
+                "Для доступа к разделу необходима подписка.\n"
+                "Перейдите в раздел «Для мам», чтобы узнать подробности.",
+                reply_markup=MainMenuKeyboard.get_keyboard(callback.from_user.id)
+            )
+            await callback.answer()
+            return
+    elif section == "drawing":
+        # Для рисования проверяем бесплатную попытку
+        has_access = await db.check_feature_access(callback.from_user.id, 'drawing')
+        if not has_access:
+            await callback.message.edit_text(
+                "⭐ Доступ к мастер-классам ограничен!\n\n"
+                "Вы уже использовали бесплатную попытку.\n"
+                "Для продолжения необходима подписка.\n\n"
+                "Перейдите в раздел «Для мам», чтобы узнать подробности.",
+                reply_markup=MainMenuKeyboard.get_keyboard(callback.from_user.id)
+            )
+            await callback.answer()
+            return
+    
     next_video = await db.get_next_creativity_video(callback.from_user.id, section)
     
     if next_video:
@@ -243,7 +364,7 @@ async def process_photo(message: Message, state: FSMContext):
     
     # Отправляем фото в канал
     await message.bot.send_photo(
-        chat_id="@doskadlavsex",
+        chat_id=config.PHOTO_CHANNEL_ID,
         photo=message.photo[-1].file_id,
         caption=(
             f"🎨 Новая работа от @{message.from_user.username}!\n"
@@ -286,6 +407,33 @@ async def navigate_masterclasses(callback: CallbackQuery, state: FSMContext):
         section = data.get("current_section")
         
         db = Database()
+        # Проверяем доступ к функции для всех разделов
+        if section in ["paper", "sculpting"]:
+            # Для бумаги и лепки всегда требуется подписка
+            subscription = await db.get_user_subscription(callback.from_user.id)
+            if not subscription:
+                await callback.message.edit_caption(
+                    caption="⭐ Доступ к этому разделу ограничен!\n\n"
+                    "Для доступа к разделу необходима подписка.\n"
+                    "Перейдите в раздел «Для мам», чтобы узнать подробности.",
+                    reply_markup=MainMenuKeyboard.get_keyboard(callback.from_user.id)
+                )
+                await callback.answer()
+                return
+        elif section == "drawing":
+            # Для рисования проверяем бесплатную попытку
+            has_access = await db.check_feature_access(callback.from_user.id, 'drawing')
+            if not has_access:
+                await callback.message.edit_caption(
+                    caption="⭐ Доступ к мастер-классам ограничен!\n\n"
+                    "Вы уже использовали бесплатную попытку.\n"
+                    "Для продолжения необходима подписка.\n\n"
+                    "Перейдите в раздел «Для мам», чтобы узнать подробности.",
+                    reply_markup=MainMenuKeyboard.get_keyboard(callback.from_user.id)
+                )
+                await callback.answer()
+                return
+        
         next_video = await db.get_next_creativity_video(
             callback.from_user.id,
             section,

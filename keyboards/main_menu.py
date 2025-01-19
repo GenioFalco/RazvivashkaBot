@@ -23,7 +23,9 @@ class MainMenuKeyboard:
             ("🧠 Нейрогимнастика", "neuro_exercises"),
             ("🤸 Артикулярная гимнастика", "articular_exercises"),
             ("🎨 Творчество", "creativity"),
-            ("🏆 Достижения", "achievements")
+            ("🏆 Достижения", "achievements"),
+            ("📋 Доска для всех", "photo_board"),
+            ("👩‍👦 Для мам", "for_parents")
         ]
         
         # Добавляем кнопку админ-панели для администраторов

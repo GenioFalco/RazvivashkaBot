@@ -183,6 +183,183 @@ class Database:
                 VALUES (9, "💎", "Алмаз", "Даётся за выполнение творческих мастер-классов")
             ''')
             
+            # Таблица подписок
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS subscriptions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    description TEXT NOT NULL,
+                    duration_days INTEGER NOT NULL,
+                    price REAL NOT NULL
+                )
+            """)
+            
+            # Таблица активных подписок пользователей
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS user_subscriptions (
+                    user_id INTEGER NOT NULL,
+                    subscription_id INTEGER NOT NULL,
+                    start_date TEXT NOT NULL,
+                    end_date TEXT NOT NULL,
+                    is_active BOOLEAN DEFAULT TRUE,
+                    FOREIGN KEY (user_id) REFERENCES users(telegram_id),
+                    FOREIGN KEY (subscription_id) REFERENCES subscriptions(id),
+                    PRIMARY KEY (user_id, subscription_id)
+                )
+            """)
+            
+            # Таблица для отслеживания бесплатных попыток
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS free_attempts (
+                    user_id INTEGER NOT NULL,
+                    feature_type TEXT NOT NULL,  -- 'daily_tasks', 'drawing'
+                    attempts_used INTEGER DEFAULT 0,
+                    last_attempt_date TEXT,
+                    PRIMARY KEY (user_id, feature_type)
+                )
+            """)
+            
+            await db.commit()
+
+    async def initialize_subscriptions(self):
+        """Инициализирует базовые подписки"""
+        # Проверяем, есть ли уже тарифы
+        async with aiosqlite.connect(self.db_path) as db:
+            # Сначала удаляем все существующие тарифы
+            await db.execute("DELETE FROM subscriptions")
+            
+            subscriptions = [
+                {
+                    'name': 'Месяц развития',
+                    'description': '🌟 Полный доступ ко всем функциям на 30 дней',
+                    'duration_days': 30,
+                    'price': 299.0
+                },
+                {
+                    'name': 'Квартал развития',
+                    'description': '🌟 Полный доступ ко всем функциям на 90 дней\n💎 Скидка 20%',
+                    'duration_days': 90,
+                    'price': 719.0
+                },
+                {
+                    'name': 'Полгода развития',
+                    'description': '🌟 Полный доступ ко всем функциям на 180 дней\n💎 Скидка 30%',
+                    'duration_days': 180,
+                    'price': 1499.0
+                },
+                {
+                    'name': 'Год развития',
+                    'description': '🌟 Полный доступ ко всем функциям на 365 дней\n💎 Скидка 40%\n🎁 Бонусные материалы',
+                    'duration_days': 365,
+                    'price': 2149.0
+                }
+            ]
+            
+            for sub in subscriptions:
+                await db.execute("""
+                    INSERT INTO subscriptions (name, description, duration_days, price)
+                    VALUES (?, ?, ?, ?)
+                """, (sub['name'], sub['description'], sub['duration_days'], sub['price']))
+            await db.commit()
+
+    async def get_user_subscription(self, user_id: int) -> Optional[dict]:
+        """Получает информацию об активной подписке пользователя"""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute("""
+                SELECT s.*, us.start_date, us.end_date
+                FROM subscriptions s
+                JOIN user_subscriptions us ON s.id = us.subscription_id
+                WHERE us.user_id = ? AND us.is_active = TRUE
+                AND date('now') <= date(us.end_date)
+                ORDER BY us.end_date DESC
+                LIMIT 1
+            """, (user_id,))
+            result = await cursor.fetchone()
+            return dict(result) if result else None
+
+    async def add_subscription(self, user_id: int, subscription_id: int) -> bool:
+        """Добавляет подписку пользователю"""
+        try:
+            async with aiosqlite.connect(self.db_path) as db:
+                # Получаем информацию о подписке
+                cursor = await db.execute(
+                    "SELECT duration_days FROM subscriptions WHERE id = ?",
+                    (subscription_id,)
+                )
+                subscription = await cursor.fetchone()
+                if not subscription:
+                    return False
+
+                # Добавляем подписку
+                await db.execute("""
+                    INSERT INTO user_subscriptions (user_id, subscription_id, start_date, end_date)
+                    VALUES (?, ?, date('now'), date('now', '+' || ? || ' days'))
+                """, (user_id, subscription_id, subscription[0]))
+                await db.commit()
+                return True
+        except Exception as e:
+            logging.error(f"Error adding subscription: {e}")
+            return False
+
+    async def get_all_subscriptions(self) -> List[Dict]:
+        """Получает список всех доступных подписок"""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute("SELECT * FROM subscriptions ORDER BY duration_days")
+            return [dict(row) for row in await cursor.fetchall()]
+
+    async def check_feature_access(self, user_id: int, feature_type: str) -> bool:
+        """Проверяет доступ пользователя к функции"""
+        # Сначала проверяем активную подписку
+        subscription = await self.get_user_subscription(user_id)
+        if subscription:
+            return True
+
+        # Если нет подписки, проверяем бесплатные попытки
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute("""
+                SELECT attempts_used, last_attempt_date
+                FROM free_attempts
+                WHERE user_id = ? AND feature_type = ?
+            """, (user_id, feature_type))
+            result = await cursor.fetchone()
+
+            # Для всех разделов кроме daily_tasks и drawing требуется подписка
+            if feature_type not in ['daily_tasks', 'drawing']:
+                return False
+
+            if not result:
+                # Первая попытка - разрешаем доступ
+                return True
+
+            attempts_used, last_attempt_date = result
+
+            if feature_type == 'daily_tasks':
+                # Проверяем, является ли это первым днем
+                if last_attempt_date:
+                    cursor = await db.execute("SELECT date('now')")
+                    current_date = (await cursor.fetchone())[0]
+                    if current_date == last_attempt_date:
+                        return True  # Разрешаем доступ в течение первого дня
+                    return False  # Блокируем доступ после первого дня
+                return True  # Первый день - разрешаем доступ
+            elif feature_type == 'drawing':
+                # Для рисования разрешаем только один мастер-класс
+                return attempts_used < 1
+
+            return False
+
+    async def increment_feature_attempt(self, user_id: int, feature_type: str) -> None:
+        """Увеличивает счетчик использования функции"""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("""
+                INSERT INTO free_attempts (user_id, feature_type, attempts_used, last_attempt_date)
+                VALUES (?, ?, 1, date('now'))
+                ON CONFLICT (user_id, feature_type) DO UPDATE SET
+                attempts_used = attempts_used + 1,
+                last_attempt_date = date('now')
+            """, (user_id, feature_type))
             await db.commit()
 
     async def get_all_tokens(self) -> List[Dict]:
