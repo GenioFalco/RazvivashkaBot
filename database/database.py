@@ -12,25 +12,46 @@ class Database:
         self.db_path = db_path
 
     async def initialize_videos(self):
-        """Инициализирует таблицу видео, если она пуста"""
+        """Инициализирует видео для упражнений и творчества"""
         async with aiosqlite.connect(self.db_path) as db:
-            # Проверяем, есть ли уже видео в таблице
-            async with db.execute("SELECT COUNT(*) FROM exercise_videos") as cursor:
-                count = await cursor.fetchone()
-                if count[0] == 0:
-                    # Добавляем видео только если таблица пуста
-                    await db.executemany(
-                        "INSERT INTO exercise_videos (type, title, description, video_url) VALUES (?, ?, ?, ?)",
-                        [
-                            ('neuro', 'Упражнение "Ленивые восьмерки"', 
-                             'Это упражнение помогает улучшить координацию и активизировать оба полушария мозга.',
-                             'https://drive.google.com/file/d/14saDv4CTTVuDpX6gtIK_O5ISVP6ypq5P/view?usp=sharing'),
-                            ('articular', 'Упражнение "Веселый язычок"',
-                             'Гимнастика для языка, которая поможет улучшить произношение звуков.',
-                             'https://drive.google.com/file/d/1gpzwEbZS9SIFyvgm6rz4ItChgrXW7pLV/view?usp=sharing')
-                        ]
+            # Проверяем наличие видео в таблице
+            cursor = await db.execute('SELECT COUNT(*) FROM creativity_videos')
+            count = (await cursor.fetchone())[0]
+            
+            # Добавляем видео только если таблица пуста
+            if count == 0:
+                # Добавляем видео для творчества
+                creativity_videos = [
+                    (
+                        "drawing",
+                        "Рисуем цветок",
+                        "Научимся рисовать красивый цветок простым карандашом",
+                        "https://drive.google.com/file/d/18LJeTjNnUTVV2jQIApkSgDlJL_FC95um/view?usp=sharing",
+                        1
+                    ),
+                    (
+                        "paper",
+                        "Оригами лебедь",
+                        "Создаем изящного лебедя в технике оригами",
+                        "https://drive.google.com/file/d/1XnvBN3xpaWDlMzR8cmf-SPXJTUVdVcMJ/view?usp=sharing",
+                        1
+                    ),
+                    (
+                        "sculpting",
+                        "Лепим котика",
+                        "Учимся лепить милого котика из пластилина",
+                        "https://drive.google.com/file/d/1Cal7FTL6zlu55W_mBYkrCFhQmRDh47xv/view?usp=sharing",
+                        1
                     )
-                    await db.commit()
+                ]
+                
+                await db.executemany('''
+                    INSERT INTO creativity_videos 
+                    (type, title, description, video_url, sequence_number)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', creativity_videos)
+                
+                await db.commit()
 
     async def create_tables(self):
         """Создает необходимые таблицы в базе данных"""
@@ -949,42 +970,6 @@ class Database:
             print(f"Error in complete_tongue_twister: {e}")
             return False 
 
-    async def initialize_videos(self):
-        """Инициализирует видео для упражнений и творчества"""
-        async with aiosqlite.connect(self.db_path) as db:
-            # Добавляем видео для творчества
-            creativity_videos = [
-                (
-                    "drawing",
-                    "Рисуем цветок",
-                    "Научимся рисовать красивый цветок простым карандашом",
-                    "https://drive.google.com/file/d/18LJeTjNnUTVV2jQIApkSgDlJL_FC95um/view?usp=sharing",
-                    1
-                ),
-                (
-                    "paper",
-                    "Оригами лебедь",
-                    "Создаем изящного лебедя в технике оригами",
-                    "https://drive.google.com/file/d/1XnvBN3xpaWDlMzR8cmf-SPXJTUVdVcMJ/view?usp=sharing",
-                    1
-                ),
-                (
-                    "sculpting",
-                    "Лепим котика",
-                    "Учимся лепить милого котика из пластилина",
-                    "https://drive.google.com/file/d/1Cal7FTL6zlu55W_mBYkrCFhQmRDh47xv/view?usp=sharing",
-                    1
-                )
-            ]
-            
-            await db.executemany('''
-                INSERT OR IGNORE INTO creativity_videos 
-                (type, title, description, video_url, sequence_number)
-                VALUES (?, ?, ?, ?, ?)
-            ''', creativity_videos)
-            
-            await db.commit()
-
     async def get_next_creativity_video(self, user_id: int, section: str, current_id: int = None, direction: str = None) -> dict:
         """Получает следующее видео для творчества"""
         async with aiosqlite.connect(self.db_path) as db:
@@ -1113,3 +1098,17 @@ class Database:
             except Exception as e:
                 print(f"Error getting creativity video by id: {e}")
                 return None 
+
+    async def is_creativity_masterclass_completed(self, user_id: int, video_id: int) -> bool:
+        """Проверяет, выполнен ли мастер-класс пользователем"""
+        try:
+            async with aiosqlite.connect(self.db_path) as db:
+                cursor = await db.execute('''
+                    SELECT COUNT(*) FROM user_creativity_completions
+                    WHERE user_id = ? AND video_id = ?
+                ''', (user_id, video_id))
+                count = (await cursor.fetchone())[0]
+                return count > 0
+        except Exception as e:
+            logging.error(f"Error checking creativity masterclass completion: {e}")
+            return False 

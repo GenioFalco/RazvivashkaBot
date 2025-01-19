@@ -39,9 +39,9 @@ class TongueTwistersKeyboard:
         # Кнопки навигации
         buttons = []
         if current_index > 0:
-            buttons.append(("⬅️ Предыдущая", f"prev_{current_index}"))
+            buttons.append(("⬅️ Предыдущая", f"prev_twister_{current_index}"))
         if current_index < total_twisters - 1:
-            buttons.append(("Следующая ➡️", f"next_{current_index}"))
+            buttons.append(("Следующая ➡️", f"next_twister_{current_index}"))
             
         for text, callback_data in buttons:
             kb.add(InlineKeyboardButton(text=text, callback_data=callback_data))

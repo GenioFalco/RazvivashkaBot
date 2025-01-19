@@ -78,22 +78,26 @@ async def navigate_twisters(callback: CallbackQuery, state: FSMContext):
         # Обновляем индекс в состоянии
         await state.update_data(current_index=new_index)
         
-        # Получаем статус выполнения
-        db = Database()
-        is_completed = await db.is_tongue_twister_completed(callback.from_user.id, twisters[new_index]['id'])
+        # Получаем статус выполнения из списка скороговорок
+        current_twister = twisters[new_index]
+        is_completed = current_twister['completed']
         
         # Формируем сообщение
-        message = f"Скороговорка {new_index + 1}/3:\n{twisters[new_index]['text']}"
+        message = (
+            f"Скороговорка {new_index + 1}/3:\n\n"
+            f"{current_twister['text']}\n\n"
+            f"{'✅ Выполнена!' if is_completed else '❌ Не выполнена'}"
+        )
         
         # Получаем клавиатуру
         markup = TongueTwistersKeyboard.get_navigation_keyboard(
             new_index,
             len(twisters),
-            twisters[new_index]['id'],
+            current_twister['id'],
             is_completed
         )
         
-        await callback.message.answer(message, reply_markup=markup)
+        await callback.message.edit_text(message, reply_markup=markup)
         await callback.answer()
         
     except Exception as e:

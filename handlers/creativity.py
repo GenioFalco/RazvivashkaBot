@@ -96,8 +96,11 @@ async def start_masterclass(callback: CallbackQuery, state: FSMContext):
     video = await db.get_next_creativity_video(callback.from_user.id, section)
     
     if video:
+        # Проверяем, было ли видео уже выполнено
+        is_completed = await db.is_creativity_masterclass_completed(callback.from_user.id, video['id'])
+        
         await state.update_data(current_video=video)
-        await send_masterclass_video(callback.message, video, False)
+        await send_masterclass_video(callback.message, video, is_completed)
     else:
         await callback.message.edit_text(
             "К сожалению, сейчас нет доступных мастер-классов.",
@@ -112,11 +115,12 @@ async def send_masterclass_video(message, video, is_completed):
         direct_link = await get_direct_download_link(video['video_url'])
         
         # Формируем текст описания
-        text = (
-            f"🎨 {video['title']}\n\n"
-            f"{video['description']}\n\n"
-            "Посмотри видео и попробуй повторить!"
-        )
+        text = f"🎨 {video['title']}\n\n{video['description']}\n\n"
+        
+        if is_completed:
+            text += "✅ Вы уже выполнили этот мастер-класс!"
+        else:
+            text += "Посмотри видео и попробуй повторить!"
         
         # Отправляем видео
         success = await send_video(
@@ -124,7 +128,10 @@ async def send_masterclass_video(message, video, is_completed):
             chat_id=message.chat.id,
             video_url=direct_link,
             caption=text,
-            reply_markup=CreativityKeyboard.get_masterclass_keyboard(video['id'], is_completed)
+            reply_markup=CreativityKeyboard.get_masterclass_keyboard(
+                video['id'],
+                show_completion=not is_completed
+            )
         )
         
         if not success:
@@ -150,7 +157,10 @@ async def complete_masterclass(callback: CallbackQuery, state: FSMContext):
         # Получаем текущее видео
         current_video = await db.get_creativity_video_by_id(video_id)
         if not current_video:
-            await callback.message.answer("Ошибка: видео не найдено")
+            await callback.message.edit_caption(
+                caption="Ошибка: видео не найдено",
+                reply_markup=CreativityKeyboard.get_back_button()
+            )
             return
 
         # Отмечаем мастер-класс как выполненный
@@ -171,23 +181,26 @@ async def complete_masterclass(callback: CallbackQuery, state: FSMContext):
                     f"Текущий мастер-класс: {current_video['title']}"
                 )
             
-            # Создаем клавиатуру с кнопками навигации
+            # Создаем клавиатуру с кнопками навигации, скрываем кнопки выполнения
             markup = CreativityKeyboard.get_masterclass_keyboard(
                 current_video['id'],
-                True  # мастер-класс выполнен
+                show_completion=False  # скрываем кнопки после выполнения
             )
         else:
             text = "Произошла ошибка при сохранении результата. Попробуйте еще раз."
-            markup = CreativityKeyboard.get_masterclass_keyboard(video_id, False)
+            markup = CreativityKeyboard.get_masterclass_keyboard(video_id, show_completion=True)
         
-        await callback.message.answer(text, reply_markup=markup)
+        await callback.message.edit_caption(
+            caption=text,
+            reply_markup=markup
+        )
         await callback.answer()
         
     except Exception as e:
         logging.error(f"Error in complete_masterclass: {e}")
-        await callback.message.answer(
-            "Произошла ошибка при выполнении мастер-класса. Попробуйте еще раз.",
-            reply_markup=CreativityKeyboard.get_masterclass_keyboard(video_id, False)
+        await callback.message.edit_caption(
+            caption="Произошла ошибка при выполнении мастер-класса. Попробуйте еще раз.",
+            reply_markup=CreativityKeyboard.get_masterclass_keyboard(video_id, show_completion=True)
         )
         await callback.answer()
 
@@ -238,9 +251,13 @@ async def process_photo(message: Message, state: FSMContext):
         )
     )
     
+    # Проверяем статус выполнения
+    db = Database()
+    is_completed = await db.is_creativity_masterclass_completed(message.from_user.id, current_video['id'])
+    
     await message.answer(
         "🌟 Спасибо за фото! Оно уже опубликовано в нашем канале творчества!",
-        reply_markup=CreativityKeyboard.get_masterclass_keyboard(current_video['id'], False)
+        reply_markup=CreativityKeyboard.get_masterclass_keyboard(current_video['id'], show_completion=not is_completed)
     )
     await state.clear()
 
@@ -250,8 +267,12 @@ async def cancel_photo(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     current_video = data.get("current_video")
     
+    # Проверяем статус выполнения
+    db = Database()
+    is_completed = await db.is_creativity_masterclass_completed(callback.from_user.id, current_video['id'])
+    
     await state.clear()
-    await send_masterclass_video(callback.message, current_video, False)
+    await send_masterclass_video(callback.message, current_video, is_completed)
     await callback.answer()
 
 @router.callback_query(F.data.startswith(("next_masterclass_", "prev_masterclass_")))
@@ -273,20 +294,23 @@ async def navigate_masterclasses(callback: CallbackQuery, state: FSMContext):
         )
         
         if next_video:
+            # Проверяем, было ли видео уже выполнено
+            is_completed = await db.is_creativity_masterclass_completed(callback.from_user.id, next_video['id'])
+            
             await state.update_data(current_video=next_video)
-            await send_masterclass_video(callback.message, next_video, False)
+            await send_masterclass_video(callback.message, next_video, is_completed)
         else:
             direction_text = "следующих" if direction == "next" else "предыдущих"
-            await callback.message.answer(
-                f"В этом направлении больше нет {direction_text} мастер-классов.",
-                reply_markup=CreativityKeyboard.get_masterclass_keyboard(video_id, True)
+            await callback.message.edit_caption(
+                caption=f"В этом направлении больше нет {direction_text} мастер-классов.",
+                reply_markup=CreativityKeyboard.get_masterclass_keyboard(video_id, show_completion=False)
             )
         
         await callback.answer()
     except Exception as e:
         logging.error(f"Error in navigate_masterclasses: {e}")
-        await callback.message.answer(
-            "Произошла ошибка при навигации между мастер-классами.",
+        await callback.message.edit_caption(
+            caption="Произошла ошибка при навигации между мастер-классами.",
             reply_markup=CreativityKeyboard.get_back_button()
         )
         await callback.answer()

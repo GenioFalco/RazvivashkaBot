@@ -26,26 +26,25 @@ class CreativityKeyboard:
         return builder.as_markup()
 
     @staticmethod
-    def get_masterclass_keyboard(video_id: int, is_completed: bool = False) -> InlineKeyboardMarkup:
+    def get_masterclass_keyboard(video_id: int, show_completion: bool = True) -> InlineKeyboardMarkup:
         """Возвращает клавиатуру для мастер-класса"""
         builder = InlineKeyboardBuilder()
         
-        if not is_completed:
-            # Кнопки для невыполненного мастер-класса
+        # Кнопки для отметки выполнения добавляем только если нужно показывать кнопки выполнения
+        if show_completion:
             builder.row(
                 InlineKeyboardButton(text="✅ Выполнил", callback_data=f"complete_masterclass_{video_id}"),
                 InlineKeyboardButton(text="⏳ Выполнить позже", callback_data=f"postpone_masterclass_{video_id}")
             )
         
+        # Кнопки навигации
+        builder.row(
+            InlineKeyboardButton(text="⬅️ Предыдущий", callback_data=f"prev_masterclass_{video_id}"),
+            InlineKeyboardButton(text="➡️ Следующий", callback_data=f"next_masterclass_{video_id}")
+        )
+        
         # Кнопка для отправки фото
         builder.row(InlineKeyboardButton(text="📸 Отправить фото", callback_data=f"send_photo_{video_id}"))
-        
-        if is_completed:
-            # Кнопки навигации для выполненного мастер-класса
-            builder.row(
-                InlineKeyboardButton(text="⬅️ Предыдущий", callback_data=f"prev_masterclass_{video_id}"),
-                InlineKeyboardButton(text="➡️ Следующий", callback_data=f"next_masterclass_{video_id}")
-            )
         
         # Кнопка "Назад"
         builder.row(InlineKeyboardButton(text="↩️ Назад", callback_data="back_to_creativity"))
