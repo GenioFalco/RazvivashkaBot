@@ -5,7 +5,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from handlers import (
     common, achievements, daily_tasks,
     riddles, exercises, puzzles, tongue_twisters,
-    creativity, subscriptions
+    creativity, subscriptions, parents
 )
 from database.database import Database
 from aiogram.enums import ParseMode
@@ -29,6 +29,7 @@ dp.include_router(puzzles.router)
 dp.include_router(tongue_twisters.router)
 dp.include_router(creativity.router)
 dp.include_router(subscriptions.router)
+dp.include_router(parents.router)
 
 async def main():
     # Инициализируем базу данных

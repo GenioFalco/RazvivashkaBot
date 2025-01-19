@@ -1,5 +1,5 @@
 import aiosqlite
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from typing import Optional, List, Dict, Tuple
 from config import config
 import re
@@ -69,10 +69,10 @@ class Database:
             # Создаем таблицу для пользователей
             await db.execute('''
                 CREATE TABLE IF NOT EXISTS users (
-                    telegram_id INTEGER PRIMARY KEY,
+                    id INTEGER PRIMARY KEY,
                     username TEXT,
-                    full_name TEXT NOT NULL,
-                    registration_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    first_name TEXT,
+                    join_date TEXT DEFAULT (date('now'))
                 )
             ''')
             
@@ -83,7 +83,7 @@ class Database:
                     token_id INTEGER,
                     count INTEGER DEFAULT 0,
                     PRIMARY KEY (user_id, token_id),
-                    FOREIGN KEY (user_id) REFERENCES users (telegram_id),
+                    FOREIGN KEY (user_id) REFERENCES users (id),
                     FOREIGN KEY (token_id) REFERENCES tokens (id)
                 )
             ''')
@@ -104,7 +104,7 @@ class Database:
                     task_id INTEGER,
                     completion_date DATE,
                     PRIMARY KEY (user_id, task_id, completion_date),
-                    FOREIGN KEY (user_id) REFERENCES users (telegram_id),
+                    FOREIGN KEY (user_id) REFERENCES users (id),
                     FOREIGN KEY (task_id) REFERENCES daily_tasks (id)
                 )
             ''')
@@ -125,7 +125,7 @@ class Database:
                     riddle_id INTEGER,
                     completion_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     PRIMARY KEY (user_id, riddle_id),
-                    FOREIGN KEY (user_id) REFERENCES users (telegram_id),
+                    FOREIGN KEY (user_id) REFERENCES users (id),
                     FOREIGN KEY (riddle_id) REFERENCES riddles (id)
                 )
             ''')
@@ -148,7 +148,7 @@ class Database:
                     video_id INTEGER,
                     view_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     PRIMARY KEY (user_id, video_id),
-                    FOREIGN KEY (user_id) REFERENCES users (telegram_id),
+                    FOREIGN KEY (user_id) REFERENCES users (id),
                     FOREIGN KEY (video_id) REFERENCES exercise_videos (id)
                 )
             ''')
@@ -172,7 +172,7 @@ class Database:
                     video_id INTEGER,
                     completion_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     PRIMARY KEY (user_id, video_id),
-                    FOREIGN KEY (user_id) REFERENCES users (telegram_id),
+                    FOREIGN KEY (user_id) REFERENCES users (id),
                     FOREIGN KEY (video_id) REFERENCES creativity_videos (id)
                 )
             ''')
@@ -183,7 +183,7 @@ class Database:
                 VALUES (9, "💎", "Алмаз", "Даётся за выполнение творческих мастер-классов")
             ''')
             
-            # Таблица подписок
+            # Создаем таблицу подписок
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS subscriptions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -194,28 +194,42 @@ class Database:
                 )
             """)
             
-            # Таблица активных подписок пользователей
+            # Создаем таблицу активных подписок пользователей
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS user_subscriptions (
                     user_id INTEGER NOT NULL,
                     subscription_id INTEGER NOT NULL,
-                    start_date TEXT NOT NULL,
+                    start_date TEXT NOT NULL DEFAULT (date('now')),
                     end_date TEXT NOT NULL,
                     is_active BOOLEAN DEFAULT TRUE,
-                    FOREIGN KEY (user_id) REFERENCES users(telegram_id),
+                    FOREIGN KEY (user_id) REFERENCES users(id),
                     FOREIGN KEY (subscription_id) REFERENCES subscriptions(id),
                     PRIMARY KEY (user_id, subscription_id)
                 )
             """)
             
-            # Таблица для отслеживания бесплатных попыток
+            # Создаем таблицу для отслеживания бесплатных попыток
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS free_attempts (
-                    user_id INTEGER NOT NULL,
-                    feature_type TEXT NOT NULL,  -- 'daily_tasks', 'drawing'
-                    attempts_used INTEGER DEFAULT 0,
-                    last_attempt_date TEXT,
-                    PRIMARY KEY (user_id, feature_type)
+                    user_id INTEGER,
+                    feature TEXT,
+                    attempts INTEGER DEFAULT 0,
+                    PRIMARY KEY (user_id, feature),
+                    FOREIGN KEY (user_id) REFERENCES users (id)
+                )
+            """)
+            
+            # Создаем таблицу рефералов
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS referrals (
+                    referrer_id INTEGER,
+                    referred_id INTEGER,
+                    join_date TEXT NOT NULL DEFAULT (date('now')),
+                    is_active BOOLEAN DEFAULT FALSE,
+                    reward_claimed BOOLEAN DEFAULT FALSE,
+                    PRIMARY KEY (referrer_id, referred_id),
+                    FOREIGN KEY (referrer_id) REFERENCES users (id),
+                    FOREIGN KEY (referred_id) REFERENCES users (id)
                 )
             """)
             
@@ -279,10 +293,19 @@ class Database:
             return dict(result) if result else None
 
     async def add_subscription(self, user_id: int, subscription_id: int) -> bool:
-        """Добавляет подписку пользователю"""
+        """
+        Добавляет или продлевает подписку пользователю
+        
+        Args:
+            user_id (int): ID пользователя
+            subscription_id (int): ID тарифа подписки
+            
+        Returns:
+            bool: True если подписка успешно добавлена/продлена, False в случае ошибки
+        """
         try:
             async with aiosqlite.connect(self.db_path) as db:
-                # Получаем информацию о подписке
+                # Получаем информацию о тарифе
                 cursor = await db.execute(
                     "SELECT duration_days FROM subscriptions WHERE id = ?",
                     (subscription_id,)
@@ -290,16 +313,43 @@ class Database:
                 subscription = await cursor.fetchone()
                 if not subscription:
                     return False
-
-                # Добавляем подписку
+                
+                duration_days = subscription[0]
+                
+                # Проверяем текущую подписку
+                cursor = await db.execute(
+                    "SELECT end_date FROM user_subscriptions WHERE user_id = ? AND is_active = TRUE",
+                    (user_id,)
+                )
+                current_sub = await cursor.fetchone()
+                
+                if current_sub:
+                    # Если есть активная подписка, продлеваем её
+                    end_date = datetime.strptime(current_sub[0], '%Y-%m-%d')
+                    new_end_date = end_date + timedelta(days=duration_days)
+                else:
+                    # Если нет активной подписки, создаём новую
+                    new_end_date = datetime.now() + timedelta(days=duration_days)
+                
+                # Деактивируем старые подписки
+                await db.execute(
+                    "UPDATE user_subscriptions SET is_active = FALSE WHERE user_id = ?",
+                    (user_id,)
+                )
+                
+                # Добавляем новую подписку
+                start_date = datetime.now().strftime('%Y-%m-%d')
+                new_end_date_str = new_end_date.strftime('%Y-%m-%d')
+                
                 await db.execute("""
                     INSERT INTO user_subscriptions (user_id, subscription_id, start_date, end_date)
-                    VALUES (?, ?, date('now'), date('now', '+' || ? || ' days'))
-                """, (user_id, subscription_id, subscription[0]))
+                    VALUES (?, ?, ?, ?)
+                """, (user_id, subscription_id, start_date, new_end_date_str))
+                
                 await db.commit()
                 return True
         except Exception as e:
-            logging.error(f"Error adding subscription: {e}")
+            print(f"Error adding subscription: {e}")
             return False
 
     async def get_all_subscriptions(self) -> List[Dict]:
@@ -1001,45 +1051,20 @@ class Database:
                 if not answers:
                     return False
                 
+                # Проверяем ответ
                 correct_answer = answers[rebus_number - 1].lower()
-                user_answer = answer.lower()
+                if answer.lower() != correct_answer:
+                    return False
                 
-                if correct_answer == user_answer:
-                    # Отмечаем ребус как решенный
-                    solved_field = f'solved{rebus_number}'
-                    await db.execute(f'''
-                        UPDATE user_puzzles 
-                        SET {solved_field} = TRUE
-                        WHERE user_id = ? AND puzzle_id = ? AND date = ?
-                    ''', (user_id, puzzle_id, today))
-                    
-                    # Проверяем, все ли ребусы на картинке решены
-                    async with db.execute('''
-                        SELECT solved1, solved2, solved3
-                        FROM user_puzzles
-                        WHERE user_id = ? AND puzzle_id = ? AND date = ?
-                    ''', (user_id, puzzle_id, today)) as cursor:
-                        solved_status = await cursor.fetchone()
-                        all_solved = all(solved_status)
-                        
-                        if all_solved:
-                            # Создаем запись для токена "Мастер ребусов" если её нет
-                            await db.execute('''
-                                INSERT OR IGNORE INTO achievements (user_id, token_id, count)
-                                VALUES (?, 3, 0)
-                            ''', (user_id,))
-                            
-                            # Увеличиваем количество токенов
-                            await db.execute('''
-                                UPDATE achievements 
-                                SET count = count + 1,
-                                    last_updated = CURRENT_TIMESTAMP
-                                WHERE user_id = ? AND token_id = 3
-                            ''', (user_id,))
-                    
-                    await db.commit()
-                    return True
-                return False 
+                # Отмечаем ребус как решенный
+                solved_field = f'solved{rebus_number}'
+                await db.execute(f'''
+                    UPDATE user_puzzles
+                    SET {solved_field} = TRUE
+                    WHERE user_id = ? AND puzzle_id = ? AND date = ?
+                ''', (user_id, puzzle_id, today))
+                await db.commit()
+                return True
 
     async def get_user_tongue_twisters(self, user_id: int) -> Tuple[List[Dict], int]:
         """Получает скороговорки пользователя на сегодня и количество выполненных"""
@@ -1289,3 +1314,85 @@ class Database:
         except Exception as e:
             logging.error(f"Error checking creativity masterclass completion: {e}")
             return False 
+
+    async def get_referral_link(self, user_id: int) -> str:
+        """Генерирует или возвращает реферальную ссылку пользователя"""
+        return f"https://t.me/mvpRazvivashkaBot?start=ref_{user_id}"
+
+    async def add_referral(self, referrer_id: int, referred_id: int) -> bool:
+        """Добавляет реферала в базу"""
+        try:
+            async with aiosqlite.connect(self.db_path) as db:
+                await db.execute("""
+                    INSERT OR IGNORE INTO referrals (referrer_id, referred_id)
+                    VALUES (?, ?)
+                """, (referrer_id, referred_id))
+                await db.commit()
+                return True
+        except Exception as e:
+            logging.error(f"Error adding referral: {e}")
+            return False
+
+    async def activate_referral(self, referrer_id: int, referred_id: int) -> bool:
+        """Активирует реферала после покупки подписки"""
+        try:
+            async with aiosqlite.connect(self.db_path) as db:
+                # Активируем реферала
+                await db.execute("""
+                    UPDATE referrals 
+                    SET is_active = TRUE 
+                    WHERE referrer_id = ? AND referred_id = ?
+                """, (referrer_id, referred_id))
+                
+                # Если реферал еще не активирован и награда не получена
+                cursor = await db.execute("""
+                    SELECT is_active, reward_claimed 
+                    FROM referrals 
+                    WHERE referrer_id = ? AND referred_id = ?
+                """, (referrer_id, referred_id))
+                result = await cursor.fetchone()
+                
+                if result and result[0] and not result[1]:
+                    # Добавляем 5 дней к подписке реферера
+                    await db.execute("""
+                        UPDATE user_subscriptions 
+                        SET end_date = date(end_date, '+5 days') 
+                        WHERE user_id = ? AND is_active = TRUE
+                    """, (referrer_id,))
+                    
+                    # Отмечаем награду как полученную
+                    await db.execute("""
+                        UPDATE referrals 
+                        SET reward_claimed = TRUE 
+                        WHERE referrer_id = ? AND referred_id = ?
+                    """, (referrer_id, referred_id))
+                
+                await db.commit()
+                return True
+        except Exception as e:
+            logging.error(f"Error activating referral: {e}")
+            return False
+
+    async def get_referral_stats(self, user_id: int) -> dict:
+        """Получает статистику рефералов пользователя"""
+        async with aiosqlite.connect(self.db_path) as db:
+            # Получаем количество активных рефералов
+            cursor = await db.execute("""
+                SELECT COUNT(*) 
+                FROM referrals 
+                WHERE referrer_id = ? AND is_active = TRUE
+            """, (user_id,))
+            active_count = (await cursor.fetchone())[0]
+            
+            # Получаем общее количество рефералов
+            cursor = await db.execute("""
+                SELECT COUNT(*) 
+                FROM referrals 
+                WHERE referrer_id = ?
+            """, (user_id,))
+            total_count = (await cursor.fetchone())[0]
+            
+            return {
+                'active': active_count,
+                'total': total_count
+            } 

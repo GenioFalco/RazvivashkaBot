@@ -7,26 +7,37 @@ from config import config
 
 router = Router()
 
-@router.message(CommandStart())
+@router.message(Command("start"))
 async def cmd_start(message: Message):
     """Обработчик команды /start"""
-    # Добавляем пользователя в базу данных
     db = Database()
+    
+    # Проверяем, есть ли реферальный код
+    args = message.text.split()
+    if len(args) > 1 and args[1].startswith('ref_'):
+        try:
+            referrer_id = int(args[1].split('_')[1])
+            # Добавляем реферала, если это не сам пользователь
+            if referrer_id != message.from_user.id:
+                await db.add_referral(referrer_id, message.from_user.id)
+        except (ValueError, IndexError):
+            pass
+    
+    # Создаем пользователя, если его нет
     await db.add_user(
         message.from_user.id,
         message.from_user.username,
-        message.from_user.full_name
+        message.from_user.first_name
     )
     
     await message.answer(
-        "👋 Привет! Я бот-развивашка!\n\n"
-        "Я помогу тебе развить:\n"
-        "• Речь\n"
-        "• Мышление\n"
-        "• Память\n"
-        "• Воображение\n"
-        "• Мелкую моторику\n\n"
-        "Выбери интересующий тебя раздел в меню ниже:",
+        "👋 Привет! Я БотРазвивашка!\n\n"
+        "Я помогу тебе:\n"
+        "• Выполнять интересные задания\n"
+        "• Учиться рисовать\n"
+        "• Развивать творческие способности\n"
+        "• Получать награды за успехи\n\n"
+        "Выбери, чем хочешь заняться:",
         reply_markup=MainMenuKeyboard.get_keyboard(message.from_user.id)
     )
 

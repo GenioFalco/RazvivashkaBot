@@ -1,8 +1,10 @@
 from aiogram import Router, F
 from aiogram.types import CallbackQuery
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 from database.database import Database
 from keyboards.subscriptions import SubscriptionsKeyboard
 from keyboards.main_menu import MainMenuKeyboard
+from datetime import datetime
 
 router = Router()
 
@@ -63,30 +65,64 @@ async def show_subscription_list(callback: CallbackQuery):
     )
     await callback.answer()
 
-@router.callback_query(F.data.startswith("buy_subscription_"))
-async def process_subscription_purchase(callback: CallbackQuery):
-    """Обрабатывает покупку подписки"""
-    subscription_id = int(callback.data.split("_")[2])
-    
+@router.callback_query(F.data == "buy_subscription")
+async def show_subscription_plans(callback: CallbackQuery):
+    """Показывает список доступных подписок"""
     db = Database()
     subscriptions = await db.get_all_subscriptions()
-    subscription = next((s for s in subscriptions if s['id'] == subscription_id), None)
     
-    if not subscription:
-        await callback.answer("Подписка не найдена", show_alert=True)
-        return
+    text = (
+        "📋 Выберите подходящий тариф:\n\n"
+    )
     
-    # Здесь должна быть интеграция с платежной системой
-    # Пока просто показываем заглушку
-    payment_url = "https://example.com/payment"  # Здесь должна быть реальная ссылка на оплату
+    builder = InlineKeyboardBuilder()
+    
+    for sub in subscriptions:
+        text += (
+            f"🔸 {sub['name']}\n"
+            f"{sub['description']}\n"
+            f"Стоимость: {sub['price']}₽\n\n"
+        )
+        builder.button(
+            text=f"{sub['name']} - {sub['price']}₽",
+            callback_data=f"activate_subscription_{sub['id']}"
+        )
+    
+    builder.button(text="⬅️ Назад", callback_data="subscription")
+    builder.adjust(1)
+    
+    await callback.message.edit_text(text, reply_markup=builder.as_markup())
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("activate_subscription_"))
+async def activate_subscription(callback: CallbackQuery):
+    """Активирует подписку на выбранный тариф"""
+    subscription_id = int(callback.data.split("_")[2])
+    db = Database()
+    
+    # В реальном боте здесь должна быть интеграция с платежной системой
+    # Сейчас просто активируем подписку
+    if await db.add_subscription(callback.from_user.id, subscription_id):
+        subscription = await db.get_user_subscription(callback.from_user.id)
+        text = (
+            "🎉 Поздравляем! Подписка успешно активирована!\n\n"
+            f"Тариф: {subscription['name']}\n"
+            f"Действует до: {subscription['end_date']}\n\n"
+            "Теперь вам доступны:\n"
+            "• Все ежедневные задания\n"
+            "• Все мастер-классы\n"
+            "• Дополнительные материалы\n\n"
+            "Желаем приятного пользования! 🌟"
+        )
+    else:
+        text = (
+            "❌ Произошла ошибка при активации подписки.\n"
+            "Пожалуйста, попробуйте позже или обратитесь в поддержку."
+        )
     
     await callback.message.edit_text(
-        f"💫 Оформление подписки '{subscription['name']}'\n\n"
-        f"Стоимость: {subscription['price']}₽\n"
-        f"Длительность: {subscription['duration_days']} дней\n\n"
-        "Нажмите кнопку «Оплатить» для перехода к оплате.\n"
-        "После оплаты нажмите «Я оплатил(а)» для проверки платежа.",
-        reply_markup=SubscriptionsKeyboard.get_payment_keyboard(payment_url, subscription_id)
+        text,
+        reply_markup=MainMenuKeyboard.get_keyboard(callback.from_user.id)
     )
     await callback.answer()
 
@@ -123,4 +159,46 @@ async def check_payment(callback: CallbackQuery):
 @router.callback_query(F.data == "back_to_subscriptions")
 async def back_to_subscriptions(callback: CallbackQuery):
     """Возвращает в меню подписок"""
-    await show_subscriptions_menu(callback) 
+    await show_subscriptions_menu(callback)
+
+@router.callback_query(F.data == "subscription")
+async def show_subscription_info(callback: CallbackQuery):
+    """Показывает информацию о подписке"""
+    db = Database()
+    subscription = await db.get_user_subscription(callback.from_user.id)
+    
+    if subscription:
+        end_date = datetime.strptime(subscription['end_date'], '%Y-%m-%d')
+        days_left = (end_date - datetime.now()).days
+        
+        text = (
+            "💫 Ваша подписка активна!\n\n"
+            f"Тариф: {subscription['name']}\n"
+            f"Действует до: {end_date.strftime('%d.%m.%Y')}\n"
+            f"Осталось дней: {days_left}\n\n"
+            "Хотите продлить подписку?"
+        )
+    else:
+        text = (
+            "У вас пока нет активной подписки.\n\n"
+            "С подпиской вам будут доступны:\n"
+            "• Все ежедневные задания\n"
+            "• Все мастер-классы\n"
+            "• Дополнительные материалы\n\n"
+            "Хотите приобрести подписку?"
+        )
+    
+    await callback.message.edit_text(
+        text,
+        reply_markup=SubscriptionsKeyboard.get_subscription_keyboard(bool(subscription))
+    )
+    await callback.answer()
+
+@router.callback_query(F.data == "back_to_main")
+async def back_to_main_menu(callback: CallbackQuery):
+    """Возвращает в главное меню"""
+    await callback.message.edit_text(
+        "Выберите раздел:",
+        reply_markup=MainMenuKeyboard.get_keyboard(callback.from_user.id)
+    )
+    await callback.answer() 
