@@ -158,12 +158,18 @@ class AdminKeyboard:
                 text = text[:27] + "..."
             
             item_id = item.get('id', 0)
+            # Добавляем кнопку с контентом
             builder.button(
                 text=text,
-                callback_data=f"edit_content:{content_type}:{item_id}"
+                callback_data=f"view_content:{content_type}:{item_id}"
             )
-        
-        builder.adjust(1)
+            # Добавляем кнопку удаления
+            builder.button(
+                text="🗑",
+                callback_data=f"delete_content:{content_type}:{item_id}"
+            )
+
+        builder.adjust(2)  # Располагаем кнопки в два столбца
 
         # Добавляем навигационные кнопки
         nav_buttons = []
@@ -201,8 +207,52 @@ class AdminKeyboard:
         return builder.as_markup()
 
     @staticmethod
+    def get_delete_confirmation_keyboard(content_type: str, content_id: int) -> InlineKeyboardMarkup:
+        """Возвращает клавиатуру для подтверждения удаления"""
+        builder = InlineKeyboardBuilder()
+        
+        builder.button(
+            text="✅ Да, удалить",
+            callback_data=f"confirm_delete:{content_type}:{content_id}"
+        )
+        builder.button(
+            text="❌ Нет, отмена",
+            callback_data=f"show_content:{content_type}:1"
+        )
+        
+        builder.adjust(2)
+        return builder.as_markup()
+
+    @staticmethod
     def get_cancel_keyboard() -> InlineKeyboardMarkup:
         """Возвращает клавиатуру с кнопкой отмены"""
         builder = InlineKeyboardBuilder()
         builder.button(text="❌ Отмена", callback_data="cancel_action")
+        return builder.as_markup()
+
+    @staticmethod
+    def get_tokens_keyboard(tokens: list, page: int, total_pages: int) -> InlineKeyboardMarkup:
+        """Возвращает клавиатуру со списком токенов"""
+        builder = InlineKeyboardBuilder()
+        
+        # Добавляем кнопки токенов
+        for token in tokens:
+            builder.button(
+                text=f"{token['emoji']} {token['name']}",
+                callback_data=f"token_{token['id']}"
+            )
+        
+        # Добавляем кнопки навигации
+        nav_buttons = []
+        if page > 1:
+            nav_buttons.append(("⬅️", f"tokens_page_{page-1}"))
+        if page < total_pages:
+            nav_buttons.append(("➡️", f"tokens_page_{page+1}"))
+        
+        for text, callback_data in nav_buttons:
+            builder.button(text=text, callback_data=callback_data)
+            
+        builder.button(text="↩️ Назад", callback_data="back_to_admin")
+        
+        builder.adjust(1, len(nav_buttons), 1)
         return builder.as_markup() 

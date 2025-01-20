@@ -444,16 +444,15 @@ class Database:
             await db.commit()
 
     async def get_all_tokens(self) -> List[Dict]:
-        """Получение списка всех токенов"""
+        """Получает список всех токенов"""
         async with aiosqlite.connect(self.db_path) as db:
-            async with db.execute('SELECT * FROM tokens') as cursor:
-                tokens = await cursor.fetchall()
-                return [{
-                    'id': token[0],
-                    'emoji': token[1],
-                    'name': token[2],
-                    'description': token[3]
-                } for token in tokens]
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute("""
+                SELECT id, emoji, name
+                FROM tokens
+                ORDER BY id
+            """)
+            return [dict(row) for row in await cursor.fetchall()]
 
     async def update_token(self, token_id: int, new_emoji: str, new_name: str) -> bool:
         """Обновление токена"""
@@ -471,8 +470,22 @@ class Database:
     @staticmethod
     def is_valid_emoji(text: str) -> bool:
         """Проверка, является ли текст эмодзи"""
-        # Простая проверка на эмодзи (может потребоваться улучшение)
-        return len(text) == 1 and ord(text) > 1000
+        if not text:  # Проверяем, что text не None и не пустая строка
+            return False
+            
+        try:
+            # Убираем модификаторы эмодзи (цвет кожи, пол и т.д.)
+            clean_text = text.encode('ascii', 'ignore').decode('ascii')
+            if clean_text:  # Если остался ASCII текст - это не эмодзи
+                return False
+                
+            # Проверяем длину текста в байтах
+            # Большинство эмодзи занимают от 3 до 8 байт
+            byte_length = len(text.encode('utf-8'))
+            return byte_length <= 8
+            
+        except Exception:
+            return False
 
     @staticmethod
     def is_valid_name(text: str) -> bool:
@@ -1592,7 +1605,7 @@ class Database:
                 return True
         except Exception as e:
             print(f"Ошибка при добавлении ежедневного задания: {e}")
-            return False
+            return False 
 
     async def add_tongue_twister(self, text: str) -> bool:
         """Добавляет новую скороговорку в базу данных"""
@@ -1621,3 +1634,48 @@ class Database:
         except Exception as e:
             print(f"Ошибка при добавлении видео упражнения: {e}")
             return False 
+
+    async def delete_content(self, content_type: str, content_id: int) -> bool:
+        """Удаляет контент указанного типа"""
+        try:
+            async with aiosqlite.connect(self.db_path) as db:
+                # Определяем таблицу на основе типа контента
+                tables = {
+                    "daily": "daily_tasks",
+                    "riddles": "riddles",
+                    "twisters": "tongue_twisters",
+                    "puzzles": "puzzles",
+                    "articular": "exercise_videos",
+                    "neuro": "exercise_videos"
+                }
+                
+                if content_type.startswith("creativity_"):
+                    table = "creativity_videos"
+                else:
+                    table = tables.get(content_type)
+                
+                if not table:
+                    return False
+                
+                # Удаляем контент
+                await db.execute(f"DELETE FROM {table} WHERE id = ?", (content_id,))
+                await db.commit()
+                return True
+        except Exception as e:
+            print(f"Ошибка при удалении контента: {e}")
+            return False 
+
+    async def get_all_user_subscriptions(self) -> List[Dict]:
+        """Получает список всех активных подписок пользователей"""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute("""
+                SELECT us.id, us.user_id, us.subscription_id, us.start_date, us.end_date,
+                       u.username as user_name, s.name as tariff_name
+                FROM user_subscriptions us
+                JOIN users u ON us.user_id = u.id
+                JOIN subscriptions s ON us.subscription_id = s.id
+                WHERE us.is_active = TRUE
+                ORDER BY us.end_date DESC
+            """)
+            return [dict(row) for row in await cursor.fetchall()] 
