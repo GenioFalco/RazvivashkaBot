@@ -3,6 +3,7 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.filters import Command, CommandStart
 from database.database import Database
 from keyboards.main_menu import MainMenuKeyboard
+from keyboards.admin import AdminKeyboard
 from config import config
 
 router = Router()
@@ -65,9 +66,15 @@ async def show_admin_panel(callback: CallbackQuery):
         await callback.answer("У вас нет доступа к админ-панели", show_alert=True)
         return
     
-    await callback.message.answer(
-        "⚙️ Админ-панель временно недоступна",
-        reply_markup=MainMenuKeyboard.get_keyboard(callback.from_user.id)
+    await callback.message.edit_text(
+        "👨‍💼 Админ-панель\n\n"
+        "Здесь вы можете:\n"
+        "• Управлять пользователями\n"
+        "• Управлять жетонами\n"
+        "• Управлять подписками\n"
+        "• Управлять контентом\n\n"
+        "Выберите нужный раздел:",
+        reply_markup=AdminKeyboard.get_menu_keyboard()
     )
     await callback.answer()
 

@@ -5,7 +5,10 @@ from config import config
 import re
 import random
 import asyncio
-import logging
+from logger import get_logger
+
+# Получаем логгер для database
+logger = get_logger(__name__)
 
 class Database:
     def __init__(self, db_path: str = config.DATABASE_PATH):
@@ -92,8 +95,7 @@ class Database:
             await db.execute('''
                 CREATE TABLE IF NOT EXISTS daily_tasks (
                     id INTEGER PRIMARY KEY,
-                    text TEXT NOT NULL,
-                    description TEXT NOT NULL
+                    task_text TEXT NOT NULL
                 )
             ''')
             
@@ -103,6 +105,7 @@ class Database:
                     user_id INTEGER,
                     task_id INTEGER,
                     completion_date DATE,
+                    completed BOOLEAN DEFAULT FALSE,
                     PRIMARY KEY (user_id, task_id, completion_date),
                     FOREIGN KEY (user_id) REFERENCES users (id),
                     FOREIGN KEY (task_id) REFERENCES daily_tasks (id)
@@ -233,6 +236,50 @@ class Database:
                 )
             """)
             
+            # Обновляем таблицу puzzles для хранения изображений в двоичном формате
+            await db.execute("""
+                DROP TABLE IF EXISTS puzzles
+            """)
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS puzzles (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    image_data BLOB NOT NULL,
+                    answer1 TEXT NOT NULL,
+                    answer2 TEXT NOT NULL,
+                    answer3 TEXT NOT NULL
+                )
+            """)
+            
+            # Таблица для творчества
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS creativity (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    title TEXT NOT NULL,
+                    description TEXT NOT NULL,
+                    video_url TEXT NOT NULL
+                )
+            """)
+            
+            # Таблица для артикуляционной гимнастики
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS articulation (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    title TEXT NOT NULL,
+                    description TEXT NOT NULL,
+                    video_url TEXT NOT NULL
+                )
+            """)
+            
+            # Таблица для нейро гимнастики
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS neuro (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    title TEXT NOT NULL,
+                    description TEXT NOT NULL,
+                    video_url TEXT NOT NULL
+                )
+            """)
+            
             await db.commit()
 
     async def initialize_subscriptions(self):
@@ -349,7 +396,7 @@ class Database:
                 await db.commit()
                 return True
         except Exception as e:
-            print(f"Error adding subscription: {e}")
+            logger.error(f"Error adding subscription: {e}")
             return False
 
     async def get_all_subscriptions(self) -> List[Dict]:
@@ -573,7 +620,7 @@ class Database:
     async def debug_achievements(self, user_id: int):
         """Отладочный метод для проверки таблицы achievements"""
         async with aiosqlite.connect(self.db_path) as db:
-            print("\nDebug achievements table:")
+            logger.debug("\nDebug achievements table:")
             async with db.execute('''
                 SELECT a.user_id, a.token_id, a.count, t.name
                 FROM achievements a
@@ -582,9 +629,9 @@ class Database:
             ''', (user_id,)) as cursor:
                 rows = await cursor.fetchall()
                 for row in rows:
-                    print(f"User {row[0]}, Token {row[1]} ({row[3]}): {row[2]} шт.")
+                    logger.debug(f"User {row[0]}, Token {row[1]} ({row[3]}): {row[2]} шт.")
             
-            print("\nDebug user_daily_tasks table:")
+            logger.debug("\nDebug user_daily_tasks table:")
             today = date.today()
             async with db.execute('''
                 SELECT task_id, completed
@@ -593,7 +640,7 @@ class Database:
             ''', (user_id, today)) as cursor:
                 rows = await cursor.fetchall()
                 for row in rows:
-                    print(f"Task {row[0]}: {'Completed' if row[1] else 'Not completed'}")
+                    logger.debug(f"Task {row[0]}: {'Completed' if row[1] else 'Not completed'}")
 
     async def complete_daily_task(self, user_id: int, task_id: int) -> bool:
         """Отмечает задание как выполненное и начисляет токен"""
@@ -654,12 +701,12 @@ class Database:
                     ''', (user_id,))
                 
                 await db.commit()
-                print(f"Completing task {task_id} for user {user_id}")
-                print(f"Task completion success: True")
-                print(f"Completed tasks count: {completed_count}")
+                logger.debug(f"Completing task {task_id} for user {user_id}")
+                logger.debug(f"Task completion success: True")
+                logger.debug(f"Completed tasks count: {completed_count}")
                 return True
         except Exception as e:
-            print(f"Error in complete_daily_task: {e}")
+            logger.error(f"Error in complete_daily_task: {e}")
             return False 
 
     async def get_token_by_id(self, token_id: int) -> dict:
@@ -701,10 +748,10 @@ class Database:
                     return True
             except Exception as e:
                 if "database is locked" in str(e) and attempt < max_retries - 1:
-                    print(f"Database locked, retrying... (attempt {attempt + 1})")
+                    logger.warning(f"Database locked, retrying... (attempt {attempt + 1})")
                     await asyncio.sleep(retry_delay * (attempt + 1))
                     continue
-                print(f"Error in add_achievement: {e}")
+                logger.error(f"Error in add_achievement: {e}")
                 return False
         return False
 
@@ -721,7 +768,7 @@ class Database:
                         return dict(token)
                     return None
         except Exception as e:
-            print(f"Error in get_random_token: {e}")
+            logger.error(f"Error in get_random_token: {e}")
             return None 
 
     async def get_user_riddles(self, user_id: int) -> Tuple[List[Dict], int]:
@@ -920,15 +967,16 @@ class Database:
                         (user_id, video_id, normalized_status)
                     )
                     await db.commit()
+                    logger.debug(f"Успешно записан просмотр упражнения: user_id={user_id}, video_id={video_id}, status={normalized_status}")
                     return
                     
             except Exception as e:
                 delay = base_delay * (2 ** attempt)  # Экспоненциальная задержка
-                print(f"Attempt {attempt + 1} failed. Retrying in {delay:.2f}s...")
+                logger.warning(f"Попытка {attempt + 1} записи просмотра упражнения не удалась. Повтор через {delay:.2f}с. Ошибка: {e}")
                 await asyncio.sleep(delay)
                 continue
                 
-        print(f"Failed to record exercise view after {max_retries} attempts") 
+        logger.error(f"Не удалось записать просмотр упражнения после {max_retries} попыток: user_id={user_id}, video_id={video_id}")
 
     async def get_exercise_video(self, video_id: int) -> dict:
         """Получает информацию о видео по его ID"""
@@ -970,7 +1018,7 @@ class Database:
                 await db.commit()
                 return True
         except Exception as e:
-            print(f"Ошибка при обновлении достижений: {e}")
+            logger.error(f"Ошибка при обновлении достижений: {e}")
             return False
 
     async def get_token_by_id(self, token_id: int) -> Optional[Dict]:
@@ -1169,7 +1217,7 @@ class Database:
                 await db.commit()
                 return True
         except Exception as e:
-            print(f"Error in complete_tongue_twister: {e}")
+            logger.error(f"Error in complete_tongue_twister: {e}")
             return False 
 
     async def get_next_creativity_video(self, user_id: int, section: str, current_id: int = None, direction: str = None) -> dict:
@@ -1236,7 +1284,7 @@ class Database:
                         }
                     return None
             except Exception as e:
-                logging.error(f"Error getting next creativity video: {e}")
+                logger.error(f"Error getting next creativity video: {e}")
                 return None
 
     async def complete_creativity_masterclass(self, user_id: int, video_id: int) -> bool:
@@ -1275,7 +1323,7 @@ class Database:
                 await db.commit()
                 return True
             except Exception as e:
-                logging.error(f"Error completing creativity masterclass: {e}")
+                logger.error(f"Error completing creativity masterclass: {e}")
                 return False
 
     async def get_creativity_video_by_id(self, video_id: int) -> dict:
@@ -1298,7 +1346,7 @@ class Database:
                     }
                 return None
             except Exception as e:
-                print(f"Error getting creativity video by id: {e}")
+                logger.error(f"Error getting creativity video by id: {e}")
                 return None 
 
     async def is_creativity_masterclass_completed(self, user_id: int, video_id: int) -> bool:
@@ -1312,7 +1360,7 @@ class Database:
                 count = (await cursor.fetchone())[0]
                 return count > 0
         except Exception as e:
-            logging.error(f"Error checking creativity masterclass completion: {e}")
+            logger.error(f"Error checking creativity masterclass completion: {e}")
             return False 
 
     async def get_referral_link(self, user_id: int) -> str:
@@ -1330,7 +1378,7 @@ class Database:
                 await db.commit()
                 return True
         except Exception as e:
-            logging.error(f"Error adding referral: {e}")
+            logger.error(f"Error adding referral: {e}")
             return False
 
     async def activate_referral(self, referrer_id: int, referred_id: int) -> bool:
@@ -1370,7 +1418,7 @@ class Database:
                 await db.commit()
                 return True
         except Exception as e:
-            logging.error(f"Error activating referral: {e}")
+            logger.error(f"Error activating referral: {e}")
             return False
 
     async def get_referral_stats(self, user_id: int) -> dict:
@@ -1396,3 +1444,159 @@ class Database:
                 'active': active_count,
                 'total': total_count
             } 
+
+    async def get_all_user_subscriptions(self) -> List[Dict]:
+        """Возвращает список всех активных подписок пользователей"""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute("""
+                SELECT 
+                    us.user_id,
+                    us.subscription_id,
+                    us.start_date,
+                    us.end_date,
+                    u.full_name as user_name,
+                    s.name as tariff_name
+                FROM user_subscriptions us
+                JOIN users u ON us.user_id = u.id
+                JOIN subscriptions s ON us.subscription_id = s.id
+                WHERE us.end_date >= date('now')
+                ORDER BY us.end_date DESC
+            """)
+            rows = await cursor.fetchall()
+            return [dict(row) for row in rows]
+    
+    async def update_subscription(self, subscription_id: int, name: str, price: int) -> bool:
+        """Обновляет информацию о тарифе"""
+        try:
+            async with aiosqlite.connect(self.db_path) as db:
+                await db.execute("""
+                    UPDATE subscriptions
+                    SET name = ?, price = ?
+                    WHERE id = ?
+                """, (name, price, subscription_id))
+                await db.commit()
+                return True
+        except Exception as e:
+            logger.error(f"Error updating subscription: {e}")
+            return False
+    
+    async def add_puzzle(self, image_data: bytes, answer1: str, answer2: str, answer3: str) -> bool:
+        """Добавляет новый ребус"""
+        try:
+            async with aiosqlite.connect(self.db_path) as db:
+                await db.execute(
+                    'INSERT INTO puzzles (image_data, answer1, answer2, answer3) VALUES (?, ?, ?, ?)',
+                    (image_data, answer1, answer2, answer3)
+                )
+                await db.commit()
+                return True
+        except Exception as e:
+            logger.error(f"Error adding puzzle: {e}")
+            return False
+    
+    async def add_tongue_twister(self, text: str) -> bool:
+        """Добавляет новую скороговорку"""
+        try:
+            async with aiosqlite.connect(self.db_path) as db:
+                await db.execute("""
+                    INSERT INTO tongue_twisters (text)
+                    VALUES (?)
+                """, (text,))
+                await db.commit()
+                return True
+        except Exception as e:
+            logger.error(f"Error adding tongue twister: {e}")
+            return False
+    
+    async def add_riddle(self, question: str, answer: str) -> bool:
+        """Добавляет новую загадку"""
+        try:
+            async with aiosqlite.connect(self.db_path) as db:
+                await db.execute("""
+                    INSERT INTO riddles (question, answer)
+                    VALUES (?, ?)
+                """, (question, answer))
+                await db.commit()
+                return True
+        except Exception as e:
+            logger.error(f"Error adding riddle: {e}")
+            return False
+    
+    async def add_daily_task(self, text: str) -> bool:
+        """Добавляет новое ежедневное задание"""
+        try:
+            async with aiosqlite.connect(self.db_path) as db:
+                await db.execute("""
+                    INSERT INTO daily_tasks (task_text)
+                    VALUES (?)
+                """, (text,))
+                await db.commit()
+                return True
+        except Exception as e:
+            logger.error(f"Error adding daily task: {e}")
+            return False
+    
+    async def get_all_daily_tasks(self) -> List[Dict]:
+        """Возвращает список всех ежедневных заданий"""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute("SELECT id, task_text as text FROM daily_tasks")
+            rows = await cursor.fetchall()
+            return [dict(row) for row in rows]
+    
+    async def get_all_riddles(self) -> List[Dict]:
+        """Возвращает список всех загадок"""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute("SELECT * FROM riddles")
+            rows = await cursor.fetchall()
+            return [dict(row) for row in rows]
+    
+    async def get_all_tongue_twisters(self) -> List[Dict]:
+        """Возвращает список всех скороговорок"""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute("SELECT * FROM tongue_twisters")
+            rows = await cursor.fetchall()
+            return [dict(row) for row in rows]
+    
+    async def get_all_puzzles(self) -> List[Dict]:
+        """Возвращает список всех ребусов"""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute('SELECT id, image_data, answer1, answer2, answer3 FROM puzzles') as cursor:
+                rows = await cursor.fetchall()
+                return [dict(row) for row in rows]
+
+    async def add_creativity(self, title: str, description: str, video_url: str):
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                "INSERT INTO creativity (title, description, video_url) VALUES (?, ?, ?)",
+                (title, description, video_url)
+            )
+            await db.commit()
+
+    async def get_all_creativity(self):
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute("SELECT id, title, description, video_url FROM creativity") as cursor:
+                return await cursor.fetchall()
+
+    async def add_exercise_video(self, title: str, description: str, video_url: str, exercise_type: str):
+        """Добавляет новое видео упражнения"""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                "INSERT INTO exercise_videos (title, description, video_url, type) VALUES (?, ?, ?, ?)",
+                (title, description, video_url, exercise_type)
+            )
+            await db.commit()
+
+    async def get_exercise_videos(self, exercise_type: str):
+        """Получает список видео упражнений определенного типа"""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT id, title, description, video_url FROM exercise_videos WHERE type = ?",
+                (exercise_type,)
+            ) as cursor:
+                return [dict(row) for row in await cursor.fetchall()] 
