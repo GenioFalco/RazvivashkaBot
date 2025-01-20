@@ -425,4 +425,43 @@ async def process_exercise_video(message: Message, state: FSMContext):
         await message.answer("✅ Упражнение успешно добавлено!")
     except Exception as e:
         await message.answer(f"❌ Ошибка при добавлении упражнения: {str(e)}")
+    await state.clear()
+
+@router.message(ContentStates.waiting_for_creativity_title)
+async def process_creativity_title(message: Message, state: FSMContext):
+    """Обрабатывает название мастер-класса"""
+    data = await state.get_data()
+    await state.update_data(title=message.text)
+    await state.set_state(ContentStates.waiting_for_creativity_description)
+    await message.answer("Введите описание мастер-класса:")
+
+@router.message(ContentStates.waiting_for_creativity_description)
+async def process_creativity_description(message: Message, state: FSMContext):
+    """Обрабатывает описание мастер-класса"""
+    await state.update_data(description=message.text)
+    await state.set_state(ContentStates.waiting_for_creativity_video)
+    await message.answer("Отправьте ссылку на видео мастер-класса:")
+
+@router.message(ContentStates.waiting_for_creativity_video)
+async def process_creativity_video(message: Message, state: FSMContext):
+    """Обрабатывает ссылку на видео мастер-класса"""
+    data = await state.get_data()
+    content_type = data.get('content_type')
+    creativity_type = content_type.split('_')[1] if content_type else None
+    
+    db = Database()
+    try:
+        await db.add_creativity_video(
+            title=data['title'],
+            description=data['description'],
+            video_url=message.text,
+            video_type=creativity_type
+        )
+        await message.answer(
+            "✅ Мастер-класс успешно добавлен!",
+            reply_markup=AdminKeyboard.get_menu_keyboard()
+        )
+    except Exception as e:
+        await message.answer(f"❌ Ошибка при добавлении мастер-класса: {str(e)}")
+    
     await state.clear() 

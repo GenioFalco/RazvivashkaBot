@@ -54,6 +54,7 @@ async def start_puzzles(callback: CallbackQuery, state: FSMContext):
             reply_markup=PuzzlesKeyboard.get_menu_keyboard()
         )
         await callback.answer()
+        await db.cleanup_temp_files()
         return
     
     # Показываем первый ребус
@@ -152,6 +153,7 @@ async def process_puzzle_answer(message: Message, state: FSMContext):
                     "Приходи завтра за новыми ребусами!",
                     reply_markup=PuzzlesKeyboard.get_menu_keyboard()
                 )
+                await db.cleanup_temp_files()
             else:
                 await message.answer(
                     f"✨ Отлично! Ты разгадал все ребусы на этой картинке!\n"
@@ -273,7 +275,9 @@ async def show_next_puzzle(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "back_to_puzzles_menu")
 async def back_to_puzzles_menu(callback: CallbackQuery, state: FSMContext):
     """Возвращает в меню ребусов"""
+    db = Database()
     await state.clear()
+    await db.cleanup_temp_files()
     # Отправляем новое сообщение вместо редактирования
     await callback.message.answer(
         "🧩 Добро пожаловать в раздел Ребусы!\n\n"
