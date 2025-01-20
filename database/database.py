@@ -266,44 +266,46 @@ class Database:
 
     async def initialize_subscriptions(self):
         """Инициализирует базовые подписки"""
-        # Проверяем, есть ли уже тарифы
         async with aiosqlite.connect(self.db_path) as db:
-            # Сначала удаляем все существующие тарифы
-            await db.execute("DELETE FROM subscriptions")
+            # Проверяем, есть ли уже тарифы
+            cursor = await db.execute("SELECT COUNT(*) FROM subscriptions")
+            count = (await cursor.fetchone())[0]
             
-            subscriptions = [
-                {
-                    'name': 'Месяц развития',
-                    'description': '🌟 Полный доступ ко всем функциям на 30 дней',
-                    'duration_days': 30,
-                    'price': 299.0
-                },
-                {
-                    'name': 'Квартал развития',
-                    'description': '🌟 Полный доступ ко всем функциям на 90 дней\n💎 Скидка 20%',
-                    'duration_days': 90,
-                    'price': 719.0
-                },
-                {
-                    'name': 'Полгода развития',
-                    'description': '🌟 Полный доступ ко всем функциям на 180 дней\n💎 Скидка 30%',
-                    'duration_days': 180,
-                    'price': 1499.0
-                },
-                {
-                    'name': 'Год развития',
-                    'description': '🌟 Полный доступ ко всем функциям на 365 дней\n💎 Скидка 40%\n🎁 Бонусные материалы',
-                    'duration_days': 365,
-                    'price': 2149.0
-                }
-            ]
-            
-            for sub in subscriptions:
-                await db.execute("""
-                    INSERT INTO subscriptions (name, description, duration_days, price)
-                    VALUES (?, ?, ?, ?)
-                """, (sub['name'], sub['description'], sub['duration_days'], sub['price']))
-            await db.commit()
+            # Добавляем тарифы только если их нет
+            if count == 0:
+                subscriptions = [
+                    {
+                        'name': 'Месяц развития',
+                        'description': '🌟 Полный доступ ко всем функциям на 30 дней',
+                        'duration_days': 30,
+                        'price': 299.0
+                    },
+                    {
+                        'name': 'Квартал развития',
+                        'description': '🌟 Полный доступ ко всем функциям на 90 дней\n💎 Скидка 20%',
+                        'duration_days': 90,
+                        'price': 719.0
+                    },
+                    {
+                        'name': 'Полгода развития',
+                        'description': '🌟 Полный доступ ко всем функциям на 180 дней\n💎 Скидка 30%',
+                        'duration_days': 180,
+                        'price': 1499.0
+                    },
+                    {
+                        'name': 'Год развития',
+                        'description': '🌟 Полный доступ ко всем функциям на 365 дней\n💎 Скидка 40%\n🎁 Бонусные материалы',
+                        'duration_days': 365,
+                        'price': 2149.0
+                    }
+                ]
+                
+                for sub in subscriptions:
+                    await db.execute("""
+                        INSERT INTO subscriptions (name, description, duration_days, price)
+                        VALUES (?, ?, ?, ?)
+                    """, (sub['name'], sub['description'], sub['duration_days'], sub['price']))
+                await db.commit()
 
     async def get_user_subscription(self, user_id: int) -> Optional[dict]:
         """Получает информацию об активной подписке пользователя"""
