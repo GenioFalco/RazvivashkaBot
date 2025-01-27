@@ -1,10 +1,10 @@
 {
   "files": {
-    "main.js": "/RazvivashkaBotApp/static/js/main.cb1351f8.js",
-    "index.html": "/RazvivashkaBotApp/index.html",
-    "main.cb1351f8.js.map": "/RazvivashkaBotApp/static/js/main.cb1351f8.js.map"
+    "main.js": "/RazvivashkaBot/static/js/main.ad2da855.js",
+    "index.html": "/RazvivashkaBot/index.html",
+    "main.ad2da855.js.map": "/RazvivashkaBot/static/js/main.ad2da855.js.map"
   },
   "entrypoints": [
-    "static/js/main.cb1351f8.js"
+    "static/js/main.ad2da855.js"
   ]
 }
