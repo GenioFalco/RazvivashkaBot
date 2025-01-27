@@ -1,19 +1,24 @@
 import React from 'react';
-import { Container, Typography, Box } from '@mui/material';
+import { Box, Typography } from '@mui/material';
 
 function MainMenu() {
   return (
-    <Container maxWidth="sm">
-      <Box py={3}>
-        <Typography variant="h4" component="h1" align="center" gutterBottom>
-          👋 Привет! Я БотРазвивашка!
-        </Typography>
-        
-        <Typography variant="body1" align="center">
-          Добро пожаловать в мини-приложение!
-        </Typography>
-      </Box>
-    </Container>
+    <Box 
+      sx={{ 
+        p: 2,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        minHeight: '100vh'
+      }}
+    >
+      <Typography variant="h4" component="h1" gutterBottom>
+        Привет! Я БотРазвивашка!
+      </Typography>
+      <Typography variant="body1">
+        Добро пожаловать в мини-приложение!
+      </Typography>
+    </Box>
   );
 }
 

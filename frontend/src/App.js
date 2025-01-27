@@ -12,19 +12,23 @@ import theme from './styles/theme';
 
 function App() {
   useEffect(() => {
-    // Инициализация Telegram WebApp
-    WebApp.ready();
-    
-    // Установка основного цвета в цвет темы Telegram
-    WebApp.setHeaderColor(theme.palette.primary.main);
+    try {
+      // Инициализация Telegram WebApp
+      WebApp.ready();
+      
+      // Установка основного цвета в цвет темы Telegram
+      WebApp.setHeaderColor(theme.palette.primary.main);
+    } catch (error) {
+      console.error('Error initializing WebApp:', error);
+    }
   }, []);
 
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <Router>
+      <Router basename="">
         <Routes>
-          <Route path="/" element={<MainMenu />} />
+          <Route exact path="/" element={<MainMenu />} />
         </Routes>
       </Router>
     </ThemeProvider>

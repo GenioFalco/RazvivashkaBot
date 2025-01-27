@@ -3,14 +3,10 @@ import { createTheme } from '@mui/material/styles';
 const theme = createTheme({
   palette: {
     primary: {
-      main: '#0088CC', // Основной цвет Telegram
-      light: '#40A7E3',
-      dark: '#006699',
+      main: '#2196f3',
     },
     secondary: {
-      main: '#FF9800',
-      light: '#FFB74D',
-      dark: '#F57C00',
+      main: '#f50057',
     },
     background: {
       default: '#F5F5F5',
